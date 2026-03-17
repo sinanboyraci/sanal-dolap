@@ -20,6 +20,7 @@ export interface WardrobeItem {
   color: string;
   style: string;
   stylingAdvice?: string; // AI generated advice
+  quickMatches?: { itemIds: string[]; explanation: string }[];
   createdAt: number;
 }
 

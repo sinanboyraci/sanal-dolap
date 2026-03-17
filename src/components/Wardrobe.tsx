@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Plus, Trash2, Camera, Link as LinkIcon, X, Loader2, Search, Filter, Sparkles, ChevronRight, Info } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { WardrobeItem, Category, WARDROBE_CATEGORIES } from '../types';
-import { analyzeClothingItem } from '../services/gemini';
+import { analyzeClothingItem, getQuickMatches } from '../services/gemini';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const CATEGORIES: Category[] = Object.keys(WARDROBE_CATEGORIES) as Category[];
@@ -181,6 +181,15 @@ export default function Wardrobe({
 
       const analysis = await analyzeClothingItem(data, mimeType);
 
+      // Get quick matches with existing wardrobe
+      const matches = await getQuickMatches({
+        description: analysis.description,
+        category: analysis.category,
+        subCategory: analysis.subCategory,
+        color: analysis.color,
+        style: analysis.style
+      }, items);
+
       const newItem: WardrobeItem = {
         id: uuidv4(),
         image: base64String,
@@ -190,6 +199,7 @@ export default function Wardrobe({
         color: analysis.color,
         style: analysis.style,
         stylingAdvice: analysis.stylingAdvice,
+        quickMatches: matches?.suggestions,
         createdAt: Date.now(),
       };
 
@@ -449,6 +459,34 @@ export default function Wardrobe({
                         {selectedItem.stylingAdvice || "Bu parça için henüz styling tavsiyesi oluşturulmamış. Yeni parçalar ekledikçe Gemini size özel tavsiyeler verecek!"}
                       </p>
                     </div>
+
+                    {selectedItem.quickMatches && selectedItem.quickMatches.length > 0 && (
+                      <div className="mt-6 space-y-4">
+                        <h5 className="flex items-center gap-2 text-indigo-600 text-[10px] font-black uppercase tracking-widest">
+                          <Sparkles className="w-3.5 h-3.5" />
+                          Dolabınızdaki Uyumlu Parçalar
+                        </h5>
+                        <div className="space-y-3">
+                          {selectedItem.quickMatches.map((match, i) => (
+                            <div key={i} className="p-4 bg-indigo-50/50 rounded-2xl border border-indigo-100/50 flex items-start gap-4 hover:bg-white hover:shadow-xl hover:shadow-indigo-100/30 transition-all group">
+                              <div className="flex -space-x-4 shrink-0 mt-1">
+                                {match.itemIds.slice(0, 3).map(id => {
+                                  const matchItem = items.find(it => it.id === id);
+                                  return matchItem ? (
+                                    <div key={id} className="w-12 h-12 rounded-full border-2 border-white object-cover shadow-lg overflow-hidden shrink-0 group-hover:scale-110 transition-transform bg-white">
+                                      <img src={matchItem.image} alt="Match" className="w-full h-full object-cover" />
+                                    </div>
+                                  ) : null;
+                                })}
+                              </div>
+                              <p className="text-[11px] text-stone-700 font-bold leading-snug group-hover:text-indigo-900 transition-colors pt-1">
+                                {match.explanation}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -567,6 +605,14 @@ export default function Wardrobe({
 
                     const analysis = await analyzeClothingItem(data, mimeType);
 
+                    const matches = await getQuickMatches({
+                      description: analysis.description,
+                      category: analysis.category,
+                      subCategory: analysis.subCategory,
+                      color: analysis.color,
+                      style: analysis.style
+                    }, items);
+
                     const newItem: WardrobeItem = {
                       id: uuidv4(),
                       image: base64String,
@@ -576,6 +622,7 @@ export default function Wardrobe({
                       color: analysis.color,
                       style: analysis.style,
                       stylingAdvice: analysis.stylingAdvice,
+                      quickMatches: matches?.suggestions,
                       createdAt: Date.now(),
                     };
 

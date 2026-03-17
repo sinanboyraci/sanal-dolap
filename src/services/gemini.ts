@@ -105,6 +105,69 @@ export async function analyzeClothingItem(base64Image: string, mimeType: string)
   };
 }
 
+export async function getQuickMatches(
+  newItem: { description: string; category: Category; subCategory: SubCategory; color: string; style: string },
+  wardrobe: WardrobeItem[]
+) {
+  if (wardrobe.length === 0) return null;
+
+  const wardrobeJson = JSON.stringify(
+    wardrobe.slice(0, 30).map((item) => ({
+      id: item.id,
+      description: item.description,
+      category: item.category,
+      subCategory: item.subCategory,
+      color: item.color,
+      style: item.style,
+    }))
+  );
+
+  const ai = await getAiClient();
+  const response = await ai.models.generateContent({
+    model: 'gemini-1.5-flash-latest',
+    contents: `
+      Yeni eklenen bir ürünümüz var: ${newItem.description} (${newItem.color}, ${newItem.style}, ${newItem.category}).
+      
+      Aşağıda kullanıcının mevcut dolabı var:
+      ${wardrobeJson}
+
+      Görevin: Bu yeni ürünün kullanıcının dolabındaki diğer ürünlerle nasıl kombinlenebileceğine dair 2-3 adet çok kısa, vurucu ve moda odaklı kombin fikri (Instant Matches) öner.
+      
+      KURALLAR:
+      1. Sadece kullanıcının dolabında (wardrobeJson içindeki id'ler) olan ürünleri kullan.
+      2. Dil Türkçe olsun.
+      3. Her kombin önerisi için seçtiğin parçaların ID'lerini ve neden uyumlu olduklarına dair tek cümlelik bir açıklama yaz.
+    `,
+    config: {
+      responseMimeType: 'application/json',
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          suggestions: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                itemIds: { type: Type.ARRAY, items: { type: Type.STRING } },
+                explanation: { type: Type.STRING },
+              },
+              required: ['itemIds', 'explanation'],
+            },
+          },
+        },
+        required: ['suggestions'],
+      },
+    },
+  });
+
+  const text = response.text;
+  if (!text) return null;
+  const cleanedText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+  return JSON.parse(cleanedText) as {
+    suggestions: { itemIds: string[]; explanation: string }[];
+  };
+}
+
 export async function generateOutfitRecommendation(
   wardrobe: WardrobeItem[],
   profile: MannequinProfile,
@@ -134,6 +197,7 @@ export async function generateOutfitRecommendation(
       The user's profile is: ${profile.age} years old ${profile.gender}, ${profile.height}cm tall, ${profile.weight}kg, with ${profile.skinTone} skin tone.
 
       CRITICAL INSTRUCTION: You MUST ONLY select items that are explicitly listed in the user's wardrobe above. Do NOT suggest, add, or hallucinate any clothing items, shoes, or accessories that are not in the provided JSON list. If the wardrobe is missing shoes or pants, do not add them. ONLY use what is provided.
+      The recommendation should be perfectly consistent with the items provided.
 
       Select the best combination of items from the wardrobe for this occasion.
       Then, write a highly detailed visual description (in English) of the user wearing this exact outfit. This description will be used as a prompt for an AI image generator.
@@ -144,21 +208,21 @@ export async function generateOutfitRecommendation(
       responseSchema: {
         type: Type.OBJECT,
         properties: {
-          selectedItemIds: {
+          selectedItems: {
             type: Type.ARRAY,
-            items: { type: Type.STRING },
-            description: 'The IDs of the selected wardrobe items.',
-          },
-          reasoning: {
-            type: Type.STRING,
-            description: 'A short explanation in Turkish of why this outfit was chosen from the user\'s wardrobe.',
-          },
-          imagePrompt: {
-            type: Type.STRING,
-            description: 'The detailed English prompt for the image generator.',
-          },
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                ids: { type: Type.ARRAY, items: { type: Type.STRING } },
+                reasoning: { type: Type.STRING, description: 'Turkish explanation.' },
+                imagePrompt: { type: Type.STRING, description: 'English image prompt.' }
+              },
+              required: ['ids', 'reasoning', 'imagePrompt']
+            },
+            description: 'Provide 3 alternative different outfit variations if possible, each with different styles (e.g., more formal vs more casual) for the same occasion.'
+          }
         },
-        required: ['selectedItemIds', 'reasoning', 'imagePrompt'],
+        required: ['selectedItems'],
       },
     },
   });
@@ -169,36 +233,39 @@ export async function generateOutfitRecommendation(
   const cleanedText = selectionText.replace(/```json/g, '').replace(/```/g, '').trim();
 
   const selection = JSON.parse(cleanedText) as {
-    selectedItemIds: string[];
-    reasoning: string;
-    imagePrompt: string;
+    selectedItems: { ids: string[]; reasoning: string; imagePrompt: string }[];
   };
 
-  // Step 2: Generate the image using gemini-2.0-flash
-  const imageResponse = await ai.models.generateContent({
-    model: 'gemini-1.5-flash-latest',
-    contents: {
-      parts: [
-        {
-          text: `A highly realistic, full-body fashion photography shot. A ${profile.age}-year-old ${profile.gender === 'Kadın' ? 'woman' : profile.gender === 'Erkek' ? 'man' : 'person'} with ${profile.skinTone === 'Açık' ? 'light/fair' : profile.skinTone === 'Buğday' ? 'olive/medium' : profile.skinTone === 'Esmer' ? 'brown/dark' : 'dark/black'} skin tone, ${profile.height}cm tall, ${profile.weight}kg. They are wearing EXACTLY AND ONLY: ${selection.imagePrompt}. Do not add any extra clothing items, jackets, hats, or accessories unless explicitly mentioned. Professional studio lighting, clean background, 8k resolution, photorealistic.`,
-        },
-      ],
-    },
-  });
+  // Process the first suggestion for now to maintain compatibility with existing types, 
+  // or return all if needed. User asked for "different different combinations".
+  // We'll return an array of results.
 
-  let imageUrl = '';
-  for (const part of imageResponse.candidates?.[0]?.content?.parts || []) {
-    if (part.inlineData) {
-      imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-      break;
+  const results = await Promise.all(selection.selectedItems.map(async (option) => {
+    const imageResponse = await ai.models.generateContent({
+      model: 'gemini-1.5-flash-latest',
+      contents: {
+        parts: [
+          {
+            text: `A highly realistic, full-body fashion photography shot. A ${profile.age}-year-old ${profile.gender === 'Kadın' ? 'woman' : profile.gender === 'Erkek' ? 'man' : 'person'} with ${profile.skinTone === 'Açık' ? 'light/fair' : profile.skinTone === 'Buğday' ? 'olive/medium' : profile.skinTone === 'Esmer' ? 'brown/dark' : 'dark/black'} skin tone, ${profile.height}cm tall, ${profile.weight}kg. They are wearing EXACTLY AND ONLY: ${option.imagePrompt}. Professional studio lighting, clean background, photorealistic.`,
+          },
+        ],
+      },
+    });
+
+    let imageUrl = '';
+    for (const part of imageResponse.candidates?.[0]?.content?.parts || []) {
+      if (part.inlineData) {
+        imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+        break;
+      }
     }
-  }
 
-  if (!imageUrl) throw new Error('Failed to generate outfit image');
+    return {
+      itemIds: option.ids,
+      description: option.reasoning,
+      imageUrl,
+    };
+  }));
 
-  return {
-    itemIds: selection.selectedItemIds,
-    description: selection.reasoning,
-    imageUrl,
-  };
+  return results; // Return all variations
 }
