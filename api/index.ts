@@ -2,10 +2,7 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 
-async function startServer() {
-  const app = express();
-  const PORT = 3000;
-
+async function setupServer(app: express.Express) {
   // API routes FIRST
   app.get("/api/health", (req, res) => {
     res.json({ status: "ok" });
@@ -48,25 +45,31 @@ async function startServer() {
       res.status(500).json({ error: "Internal server error" });
     }
   });
+}
 
-  // Vite middleware for development
-  if (process.env.NODE_ENV !== "production") {
-    const vite = await createViteServer({
-      server: { middlewareMode: true },
-      appType: "spa",
-    });
-    app.use(vite.middlewares);
-  } else {
-    const distPath = path.join(process.cwd(), 'dist');
-    app.use(express.static(distPath));
-    app.get('*', (req, res) => {
-      res.sendFile(path.join(distPath, 'index.html'));
-    });
-  }
+// Vercel middleware or static files are handled by vercel.json 
+// so we don't need to run Vite middleware here when deploying.
+
+async function startServerLocal(app: express.Express, PORT: number) {
+  const vite = await createViteServer({
+    server: { middlewareMode: true },
+    appType: "spa",
+  });
+  app.use(vite.middlewares);
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
 }
 
-startServer();
+// Ensure the Express app is created and exported for Serverless
+const app = express();
+setupServer(app);
+
+if (process.env.NODE_ENV !== "production") {
+  // Only for local development
+  const PORT = 3000;
+  startServerLocal(app, PORT);
+}
+
+export default app;
