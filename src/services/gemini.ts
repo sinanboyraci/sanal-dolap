@@ -11,7 +11,7 @@ async function getAiClient(): Promise<GoogleGenAI> {
   // if it wasn't present at build time.
   const buildTimeKey = process.env.GEMINI_API_KEY;
 
-  if (buildTimeKey) {
+  if (buildTimeKey && buildTimeKey.length > 5 && !buildTimeKey.includes("BURAYA")) {
     aiClient = new GoogleGenAI({ apiKey: buildTimeKey });
     return aiClient;
   }
