@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { Shirt, User, Sparkles, Download } from 'lucide-react';
+import { LayoutGrid, User, Sparkles, Download, Heart } from 'lucide-react';
 import Wardrobe from './components/Wardrobe';
 import Mannequin from './components/Mannequin';
 import Outfits from './components/Outfits';
 import { db } from './services/db';
 import { MannequinProfile, WardrobeItem, OutfitRecommendation } from './types';
+import { motion, AnimatePresence } from 'framer-motion';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState<'wardrobe' | 'mannequin' | 'outfits'>('wardrobe');
@@ -63,84 +64,125 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-stone-50 text-stone-900 pb-20 md:pb-0 md:pl-64">
+    <div className="min-h-screen bg-[#FDFCFB] text-stone-900 pb-24 md:pb-0 md:pl-72">
       {/* Sidebar for Desktop / Bottom Nav for Mobile */}
-      <nav className="fixed bottom-0 left-0 right-0 bg-white border-t border-stone-200 md:top-0 md:bottom-auto md:w-64 md:h-screen md:border-r md:border-t-0 z-50 flex md:flex-col">
-        <div className="hidden md:flex items-center p-6 border-b border-stone-200">
-          <Sparkles className="w-6 h-6 text-indigo-600 mr-2" />
-          <h1 className="text-xl font-bold tracking-tight">Sanal Dolap</h1>
+      <nav className="fixed bottom-0 left-0 right-0 bg-white/80 backdrop-blur-xl border-t border-stone-200 md:top-0 md:bottom-auto md:w-72 md:h-screen md:border-r md:border-t-0 z-50 flex md:flex-col shadow-2xl md:shadow-none">
+        <div className="hidden md:flex flex-col p-10">
+          <div className="flex items-center gap-3 mb-12">
+            <div className="w-12 h-12 bg-indigo-600 rounded-2xl flex items-center justify-center shadow-lg shadow-indigo-100">
+              <Sparkles className="w-6 h-6 text-white" />
+            </div>
+            <div>
+              <h1 className="text-xl font-black tracking-tighter text-stone-900">Sanal Dolap</h1>
+              <p className="text-[10px] font-bold text-indigo-500 uppercase tracking-widest">AI Fashion Pro</p>
+            </div>
+          </div>
+
+          <div className="space-y-3">
+            <NavItem
+              icon={<LayoutGrid className="w-5 h-5" />}
+              label="Dolabım"
+              active={activeTab === 'wardrobe'}
+              onClick={() => setActiveTab('wardrobe')}
+            />
+            <NavItem
+              icon={<User className="w-5 h-5" />}
+              label="Manken"
+              active={activeTab === 'mannequin'}
+              onClick={() => setActiveTab('mannequin')}
+            />
+            <NavItem
+              icon={<Sparkles className="w-5 h-5" />}
+              label="Kombin Önerisi"
+              active={activeTab === 'outfits'}
+              onClick={() => setActiveTab('outfits')}
+            />
+          </div>
         </div>
-        <div className="flex w-full md:flex-col md:p-4">
-          <NavItem
-            icon={<Shirt />}
-            label="Dolabım"
+
+        {/* Mobile Nav */}
+        <div className="flex md:hidden w-full justify-around items-center p-3">
+          <MobileNavItem
+            icon={<LayoutGrid className="w-6 h-6" />}
+            label="Dolap"
             active={activeTab === 'wardrobe'}
             onClick={() => setActiveTab('wardrobe')}
           />
-          <NavItem
-            icon={<User />}
+          <MobileNavItem
+            icon={<User className="w-6 h-6" />}
             label="Manken"
             active={activeTab === 'mannequin'}
             onClick={() => setActiveTab('mannequin')}
           />
-          <NavItem
-            icon={<Sparkles />}
-            label="Kombin Önerisi"
+          <MobileNavItem
+            icon={<Sparkles className="w-6 h-6" />}
+            label="Kombin"
             active={activeTab === 'outfits'}
             onClick={() => setActiveTab('outfits')}
           />
         </div>
-        
-        {/* PWA Install Button (Desktop & Mobile Sidebar) */}
+
+        {/* PWA Install Button */}
         {deferredPrompt && (
-          <div className="hidden md:block mt-auto p-4">
+          <div className="hidden md:block mt-auto p-10">
             <button
               onClick={handleInstallClick}
-              className="w-full flex items-center justify-center gap-2 bg-indigo-600 text-white p-3 rounded-xl hover:bg-indigo-700 transition-colors text-sm font-medium shadow-sm"
+              className="w-full group flex items-center justify-center gap-3 bg-stone-900 text-white p-4 rounded-2xl hover:bg-stone-800 transition-all text-sm font-bold shadow-xl shadow-stone-200 active:scale-95"
             >
-              <Download className="w-4 h-4" />
-              <span>Uygulamayı Yükle</span>
+              <Download className="w-4 h-4 group-hover:-translate-y-1 transition-transform" />
+              Yükle (PWA)
             </button>
           </div>
         )}
       </nav>
 
-      {/* Main Content */}
-      <main className="p-4 md:p-8 max-w-5xl mx-auto">
+      {/* Main Content Area */}
+      <main className="p-6 md:p-12 relative max-w-[1600px] mx-auto min-h-screen">
         {/* Mobile Install Banner */}
         {deferredPrompt && (
-          <div className="md:hidden mb-6 bg-indigo-50 border border-indigo-100 rounded-2xl p-4 flex items-center justify-between shadow-sm">
-            <div>
-              <h3 className="text-sm font-bold text-indigo-900">Uygulamayı Yükle</h3>
-              <p className="text-xs text-indigo-700 mt-0.5">Daha iyi bir deneyim için ana ekrana ekleyin</p>
+          <div className="md:hidden mb-8 bg-indigo-600 rounded-[2rem] p-6 flex items-center justify-between shadow-xl shadow-indigo-100 overflow-hidden relative group">
+            <Sparkles className="absolute -top-4 -right-4 w-24 h-24 text-white/10 group-hover:scale-110 transition-transform" />
+            <div className="relative z-10">
+              <h3 className="text-white font-black text-lg">Uygulamayı Yükle</h3>
+              <p className="text-white/80 text-xs font-bold uppercase tracking-widest mt-1">Daha Profesyonel Kullanım</p>
             </div>
             <button
               onClick={handleInstallClick}
-              className="bg-indigo-600 text-white px-4 py-2 rounded-xl text-sm font-medium shadow-sm active:scale-95 transition-transform"
+              className="relative z-10 bg-white text-indigo-600 px-5 py-2.5 rounded-[1.25rem] text-sm font-black shadow-lg active:scale-90 transition-all"
             >
-              Yükle
+              ŞİMDİ YÜKLE
             </button>
           </div>
         )}
 
-        {activeTab === 'wardrobe' && (
-          <Wardrobe
-            items={wardrobe}
-            onAdd={handleAddWardrobeItem}
-            onDelete={handleDeleteWardrobeItem}
-          />
-        )}
-        {activeTab === 'mannequin' && (
-          <Mannequin profile={profile} onSave={handleSaveProfile} />
-        )}
-        {activeTab === 'outfits' && (
-          <Outfits
-            wardrobe={wardrobe}
-            profile={profile}
-            history={outfits}
-            onSave={handleSaveOutfit}
-          />
-        )}
+        <AnimatePresence mode="wait">
+          <motion.div
+            key={activeTab}
+            initial={{ opacity: 0, y: 20, filter: 'blur(10px)' }}
+            animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
+            exit={{ opacity: 0, y: -20, filter: 'blur(10px)' }}
+            transition={{ duration: 0.5, ease: [0.23, 1, 0.32, 1] }}
+          >
+            {activeTab === 'wardrobe' && (
+              <Wardrobe
+                items={wardrobe}
+                onAdd={handleAddWardrobeItem}
+                onDelete={handleDeleteWardrobeItem}
+              />
+            )}
+            {activeTab === 'mannequin' && (
+              <Mannequin profile={profile} onSave={handleSaveProfile} />
+            )}
+            {activeTab === 'outfits' && (
+              <Outfits
+                wardrobe={wardrobe}
+                profile={profile}
+                history={outfits}
+                onSave={handleSaveOutfit}
+              />
+            )}
+          </motion.div>
+        </AnimatePresence>
       </main>
     </div>
   );
@@ -160,16 +202,52 @@ function NavItem({
   return (
     <button
       onClick={onClick}
-      className={`flex-1 md:flex-none flex flex-col md:flex-row items-center justify-center md:justify-start py-3 md:py-4 md:px-4 gap-1 md:gap-3 transition-colors md:rounded-xl ${
-        active
-          ? 'text-indigo-600 md:bg-indigo-50 font-medium'
-          : 'text-stone-500 hover:text-stone-900 md:hover:bg-stone-100'
-      }`}
+      className={`w-full flex items-center gap-4 px-6 py-4 rounded-2xl transition-all duration-300 relative group overflow-hidden ${active
+          ? 'bg-indigo-50 text-indigo-600 shadow-sm'
+          : 'text-stone-500 hover:bg-white hover:text-stone-900'
+        }`}
     >
-      <div className="w-6 h-6">{icon}</div>
-      <span className="text-[10px] md:text-sm uppercase md:capitalize tracking-wider md:tracking-normal">
-        {label}
+      {active && (
+        <motion.div
+          layoutId="active-indicator"
+          className="absolute left-0 top-0 bottom-0 w-1.5 bg-indigo-600 rounded-r-full"
+        />
+      )}
+      <span className={`transition-transform duration-300 group-hover:scale-110 ${active ? 'scale-110' : ''}`}>
+        {icon}
       </span>
+      <span className="font-bold text-sm tracking-tight">{label}</span>
+    </button>
+  );
+}
+
+function MobileNavItem({
+  icon,
+  label,
+  active,
+  onClick,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex flex-col items-center gap-1.5 py-2 px-6 rounded-2xl transition-all ${active ? 'bg-indigo-50 text-indigo-600 scale-110' : 'text-stone-400'
+        }`}
+    >
+      <div className="relative">
+        {icon}
+        {active && (
+          <motion.div
+            layoutId="mobile-dot"
+            className="absolute -top-1 -right-1 w-2 h-2 bg-indigo-600 rounded-full"
+          />
+        )}
+      </div>
+      <span className="text-[10px] font-bold uppercase tracking-widest">{label}</span>
     </button>
   );
 }

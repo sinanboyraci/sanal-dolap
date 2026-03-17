@@ -33,7 +33,7 @@ async function getAiClient(): Promise<GoogleGenAI> {
 export async function analyzeClothingItem(base64Image: string, mimeType: string) {
   const ai = await getAiClient();
   const response = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-1.5-flash-latest',
     contents: {
       parts: [
         {
@@ -43,7 +43,11 @@ export async function analyzeClothingItem(base64Image: string, mimeType: string)
           },
         },
         {
-          text: `Analyze this clothing item. Provide its category, subCategory, a short description, its primary color, and its style. 
+          text: `Analyze this clothing item in Turkish. 
+          Provide its category, subCategory, a short description, its primary color, and its style. 
+          Also, write "stylingAdvice" - a detailed Turkish styling suggestion describing what other items from a wardrobe 
+          (like which colors, patterns, or types of pants/shirts/shoes) would pair beautifully with this item.
+          
           Valid categories and their subcategories are:
           ${JSON.stringify(WARDROBE_CATEGORIES, null, 2)}
           `,
@@ -76,8 +80,12 @@ export async function analyzeClothingItem(base64Image: string, mimeType: string)
             type: Type.STRING,
             description: 'The style of the item (e.g., Sportif, Klasik, Günlük, Şık) in Turkish.',
           },
+          stylingAdvice: {
+            type: Type.STRING,
+            description: 'Detailed Turkish styling advice for this item.',
+          },
         },
-        required: ['category', 'subCategory', 'description', 'color', 'style'],
+        required: ['category', 'subCategory', 'description', 'color', 'style', 'stylingAdvice'],
       },
     },
   });
@@ -93,6 +101,7 @@ export async function analyzeClothingItem(base64Image: string, mimeType: string)
     description: string;
     color: string;
     style: string;
+    stylingAdvice: string;
   };
 }
 
@@ -115,7 +124,7 @@ export async function generateOutfitRecommendation(
 
   const ai = await getAiClient();
   const selectionResponse = await ai.models.generateContent({
-    model: 'gemini-3-flash-preview',
+    model: 'gemini-1.5-pro-latest',
     contents: `
       You are an expert fashion stylist.
       Here is the user's wardrobe (JSON format):
@@ -165,9 +174,9 @@ export async function generateOutfitRecommendation(
     imagePrompt: string;
   };
 
-  // Step 2: Generate the image using gemini-2.5-flash-image
+  // Step 2: Generate the image using gemini-2.0-flash
   const imageResponse = await ai.models.generateContent({
-    model: 'gemini-2.5-flash-image',
+    model: 'gemini-1.5-flash-latest',
     contents: {
       parts: [
         {

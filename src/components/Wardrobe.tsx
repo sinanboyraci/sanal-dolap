@@ -1,8 +1,9 @@
 import React, { useState, useRef } from 'react';
-import { Plus, Trash2, Camera, Link as LinkIcon, X, Loader2 } from 'lucide-react';
+import { Plus, Trash2, Camera, Link as LinkIcon, X, Loader2, Search, Filter, Sparkles, ChevronRight, Info } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { WardrobeItem, Category, WARDROBE_CATEGORIES } from '../types';
 import { analyzeClothingItem } from '../services/gemini';
+import { motion, AnimatePresence } from 'framer-motion';
 
 const CATEGORIES: Category[] = Object.keys(WARDROBE_CATEGORIES) as Category[];
 
@@ -77,7 +78,6 @@ const fetchImageFromUrl = async (url: string): Promise<string> => {
     throw new Error('Linke erişilemedi (CORS veya Ağ hatası). Lütfen farklı bir link deneyin veya fotoğrafı cihazınıza indirip yükleyin.');
   };
 
-  // If it doesn't look like a direct image URL, try scraping first
   if (!isImageUrl) {
     try {
       const scrapeRes = await fetch(`/api/scrape-product?url=${encodeURIComponent(url)}`);
@@ -85,7 +85,6 @@ const fetchImageFromUrl = async (url: string): Promise<string> => {
         const { imageUrls } = await scrapeRes.json();
 
         if (imageUrls && imageUrls.length > 0) {
-          // Try each extracted image until one works
           for (const imgUrl of imageUrls) {
             try {
               const imgRes = await fetch(`/api/proxy-image?url=${encodeURIComponent(imgUrl)}`);
@@ -105,11 +104,9 @@ const fetchImageFromUrl = async (url: string): Promise<string> => {
       console.error('Scraping failed:', e);
     }
 
-    // Fallback to Microlink if scraping found nothing or all images failed
     return await tryMicrolinkFallback(url);
   }
 
-  // If it's a direct image URL (or looked like one), proxy it
   try {
     const response = await fetch(`/api/proxy-image?url=${encodeURIComponent(url)}`);
     if (response.ok) {
@@ -133,15 +130,31 @@ export default function Wardrobe({
   onDelete: (id: string) => void;
 }) {
   const [activeCategory, setActiveCategory] = useState<Category | 'Tümü'>('Tümü');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [showFilters, setShowFilters] = useState(false);
+  const [filterColor, setFilterColor] = useState('Tümü');
+  const [filterStyle, setFilterStyle] = useState('Tümü');
+
   const [isAdding, setIsAdding] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedItem, setSelectedItem] = useState<WardrobeItem | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const filteredItems =
-    activeCategory === 'Tümü'
-      ? items
-      : items.filter((item) => item.category === activeCategory);
+  // Available unique colors and styles for filtering
+  const availableColors = ['Tümü', ...new Set(items.map(i => i.color))];
+  const availableStyles = ['Tümü', ...new Set(items.map(i => i.style))];
+
+  const filteredItems = items.filter((item) => {
+    const matchesCategory = activeCategory === 'Tümü' || item.category === activeCategory;
+    const matchesSearch = item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.subCategory.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      item.color.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesColor = filterColor === 'Tümü' || item.color === filterColor;
+    const matchesStyle = filterStyle === 'Tümü' || item.style === filterStyle;
+
+    return matchesCategory && matchesSearch && matchesColor && matchesStyle;
+  });
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -151,61 +164,126 @@ export default function Wardrobe({
     setError(null);
 
     try {
-      const reader = new FileReader();
-      reader.onloadend = async () => {
-        const rawBase64String = reader.result as string;
-        const base64String = await compressImage(rawBase64String);
+      const base64FromFile = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
 
-        // Extract base64 data and mime type
-        const match = base64String.match(/^data:(image\/[a-zA-Z]*);base64,(.*)$/);
-        if (!match) throw new Error('Invalid image format');
+      const base64String = await compressImage(base64FromFile);
 
-        const mimeType = match[1];
-        const data = match[2];
+      const match = base64String.match(/^data:(image\/[a-zA-Z]*);base64,(.*)$/);
+      if (!match) throw new Error('Geçersiz görsel formatı');
 
-        const analysis = await analyzeClothingItem(data, mimeType);
+      const mimeType = match[1];
+      const data = match[2];
 
-        const newItem: WardrobeItem = {
-          id: uuidv4(),
-          image: base64String,
-          category: analysis.category,
-          subCategory: analysis.subCategory,
-          description: analysis.description,
-          color: analysis.color,
-          style: analysis.style,
-          createdAt: Date.now(),
-        };
+      const analysis = await analyzeClothingItem(data, mimeType);
 
-        onAdd(newItem);
-        setIsAdding(false);
+      const newItem: WardrobeItem = {
+        id: uuidv4(),
+        image: base64String,
+        category: analysis.category,
+        subCategory: analysis.subCategory,
+        description: analysis.description,
+        color: analysis.color,
+        style: analysis.style,
+        stylingAdvice: analysis.stylingAdvice,
+        createdAt: Date.now(),
       };
-      reader.readAsDataURL(file);
+
+      onAdd(newItem);
+      setIsAdding(false);
     } catch (err: any) {
+      console.error('File upload error:', err);
       setError(err.message || 'Bir hata oluştu.');
     } finally {
       setIsLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
     }
   };
 
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold tracking-tight text-stone-900">Dolabım</h2>
-        <button
-          onClick={() => setIsAdding(true)}
-          className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-colors shadow-sm"
-        >
-          <Plus className="w-5 h-5" />
-          <span className="hidden sm:inline font-medium">Eşya Ekle</span>
-        </button>
+      <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
+        <h2 className="text-3xl font-extrabold tracking-tight text-stone-900">Dolabım</h2>
+        <div className="flex w-full md:w-auto gap-2">
+          <div className="relative flex-1 md:w-64">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-stone-400" />
+            <input
+              type="text"
+              placeholder="Ara..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 bg-white border border-stone-200 rounded-xl focus:ring-2 focus:ring-indigo-500 focus:border-transparent outline-none transition-all text-sm"
+            />
+          </div>
+          <button
+            onClick={() => setShowFilters(!showFilters)}
+            className={`p-2 rounded-xl border transition-colors ${showFilters ? 'bg-indigo-50 border-indigo-200 text-indigo-600' : 'bg-white border-stone-200 text-stone-600 hover:bg-stone-50'}`}
+          >
+            <Filter className="w-5 h-5" />
+          </button>
+          <button
+            onClick={() => setIsAdding(true)}
+            className="flex items-center gap-2 bg-indigo-600 text-white px-4 py-2 rounded-xl hover:bg-indigo-700 transition-all shadow-sm hover:shadow-md active:scale-95"
+          >
+            <Plus className="w-5 h-5" />
+            <span className="hidden sm:inline font-semibold">Eşya Ekle</span>
+          </button>
+        </div>
       </div>
+
+      {/* Advanced Filters Panel */}
+      <AnimatePresence>
+        {showFilters && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden bg-white border border-stone-200 rounded-2xl p-4 shadow-sm"
+          >
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-stone-500 uppercase tracking-wider">Renk</label>
+                <div className="flex flex-wrap gap-2">
+                  {availableColors.map(color => (
+                    <button
+                      key={color}
+                      onClick={() => setFilterColor(color)}
+                      className={`px-3 py-1 rounded-lg text-xs font-medium border transition-all ${filterColor === color ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-stone-200 text-stone-600 hover:border-stone-400'}`}
+                    >
+                      {color}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="space-y-2">
+                <label className="text-xs font-bold text-stone-500 uppercase tracking-wider">Stil</label>
+                <div className="flex flex-wrap gap-2">
+                  {availableStyles.map(style => (
+                    <button
+                      key={style}
+                      onClick={() => setFilterStyle(style)}
+                      className={`px-3 py-1 rounded-lg text-xs font-medium border transition-all ${filterStyle === style ? 'bg-indigo-600 border-indigo-600 text-white' : 'bg-white border-stone-200 text-stone-600 hover:border-stone-400'}`}
+                    >
+                      {style}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Category Filter */}
       <div className="flex overflow-x-auto pb-2 gap-2 scrollbar-hide">
         <button
           onClick={() => setActiveCategory('Tümü')}
-          className={`whitespace-nowrap px-4 py-2 rounded-full text-sm font-medium transition-colors ${activeCategory === 'Tümü'
-            ? 'bg-stone-900 text-white'
+          className={`whitespace-nowrap px-5 py-2 rounded-full text-sm font-semibold transition-all shadow-sm ${activeCategory === 'Tümü'
+            ? 'bg-stone-900 text-white scale-105'
             : 'bg-white text-stone-600 hover:bg-stone-100 border border-stone-200'
             }`}
         >
@@ -215,8 +293,8 @@ export default function Wardrobe({
           <button
             key={cat}
             onClick={() => setActiveCategory(cat)}
-            className={`whitespace-nowrap px-4 py-2 rounded-full text-sm font-medium transition-colors ${activeCategory === cat
-              ? 'bg-stone-900 text-white'
+            className={`whitespace-nowrap px-5 py-2 rounded-full text-sm font-semibold transition-all shadow-sm ${activeCategory === cat
+              ? 'bg-stone-900 text-white scale-105'
               : 'bg-white text-stone-600 hover:bg-stone-100 border border-stone-200'
               }`}
           >
@@ -227,77 +305,205 @@ export default function Wardrobe({
 
       {/* Grid */}
       {filteredItems.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-3xl border border-stone-200 border-dashed">
-          <ShirtIcon className="w-16 h-16 text-stone-300 mx-auto mb-4" />
-          <h3 className="text-lg font-medium text-stone-900">Dolabınız boş</h3>
-          <p className="text-stone-500 mt-1">Hemen yeni eşyalar eklemeye başlayın.</p>
+        <div className="text-center py-24 bg-white rounded-[2rem] border-2 border-stone-100 border-dashed">
+          <motion.div
+            initial={{ scale: 0.8, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: 'spring', damping: 20 }}
+          >
+            <ShirtIcon className="w-20 h-20 text-stone-200 mx-auto mb-6" />
+            <h3 className="text-xl font-bold text-stone-900">Aradığınızı bulamadık</h3>
+            <p className="text-stone-400 mt-2">Filtreleri değiştirmeyi veya yeni eşyalar eklemeyi deneyin.</p>
+          </motion.div>
         </div>
       ) : (
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
-          {filteredItems.map((item) => (
-            <div
-              key={item.id}
-              className="group relative bg-white rounded-2xl overflow-hidden shadow-sm border border-stone-200 hover:shadow-md transition-shadow"
-            >
-              <div className="aspect-square bg-stone-100 overflow-hidden">
-                <img
-                  src={item.image}
-                  alt={item.description}
-                  className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-300"
-                  referrerPolicy="no-referrer"
-                />
-              </div>
-              <div className="p-3">
-                <p className="text-xs font-semibold text-indigo-600 uppercase tracking-wider mb-1">
-                  {item.category} <span className="text-stone-400 font-normal ml-1">• {item.subCategory}</span>
-                </p>
-                <p className="text-sm text-stone-900 line-clamp-2 leading-tight">
-                  {item.description}
-                </p>
-                <div className="flex gap-1 mt-2 flex-wrap">
-                  <span className="inline-block px-2 py-1 bg-stone-100 text-stone-600 text-[10px] rounded-md">
-                    {item.color}
-                  </span>
-                  <span className="inline-block px-2 py-1 bg-stone-100 text-stone-600 text-[10px] rounded-md">
-                    {item.style}
-                  </span>
-                </div>
-              </div>
-              <button
-                onClick={() => onDelete(item.id)}
-                className="absolute top-2 right-2 p-2 bg-white/90 backdrop-blur-sm text-red-500 rounded-full opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-50"
+        <motion.div
+          layout
+          className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-6"
+        >
+          <AnimatePresence mode='popLayout'>
+            {filteredItems.map((item) => (
+              <motion.div
+                layout
+                key={item.id}
+                initial={{ opacity: 0, y: 20, scale: 0.95 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.9, transition: { duration: 0.2 } }}
+                whileHover={{ y: -4 }}
+                className="group relative bg-white rounded-3xl overflow-hidden shadow-sm border border-stone-200 hover:shadow-xl transition-all duration-300 cursor-pointer"
+                onClick={() => setSelectedItem(item)}
               >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
-        </div>
+                <div className="aspect-[4/5] bg-stone-50 overflow-hidden relative">
+                  <img
+                    src={item.image}
+                    alt={item.description}
+                    className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-700"
+                    referrerPolicy="no-referrer"
+                  />
+                  <div className="absolute inset-0 bg-stone-900/0 group-hover:bg-stone-900/10 transition-colors" />
+
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDelete(item.id);
+                    }}
+                    className="absolute top-3 right-3 p-2.5 bg-white/90 backdrop-blur-md text-red-500 rounded-full shadow-lg opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all hover:bg-red-50 active:scale-90"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+
+                  <div className="absolute bottom-3 left-3 opacity-0 translate-y-2 group-hover:opacity-100 group-hover:translate-y-0 transition-all">
+                    <span className="px-3 py-1 bg-white/90 backdrop-blur-md text-stone-900 text-[10px] font-bold rounded-full shadow-sm flex items-center gap-1">
+                      <Sparkles className="w-3 h-3 text-indigo-500" />
+                      Tavsiye İçin Tıklayın
+                    </span>
+                  </div>
+                </div>
+                <div className="p-4">
+                  <p className="text-xs font-bold text-indigo-600 uppercase tracking-widest mb-1">
+                    {item.category}
+                  </p>
+                  <h4 className="text-sm font-semibold text-stone-900 truncate mb-2">
+                    {item.description}
+                  </h4>
+                  <div className="flex gap-2 flex-wrap">
+                    <span className="px-2 py-0.5 bg-stone-100 text-stone-600 text-[9px] font-bold rounded-md uppercase tracking-tighter">
+                      {item.color}
+                    </span>
+                    <span className="px-2 py-0.5 bg-stone-100 text-stone-600 text-[9px] font-bold rounded-md uppercase tracking-tighter">
+                      {item.style}
+                    </span>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </AnimatePresence>
+        </motion.div>
       )}
+
+      {/* Styled Advice Modal */}
+      <AnimatePresence>
+        {selectedItem && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedItem(null)}
+              className="absolute inset-0 bg-stone-900/60 backdrop-blur-md"
+            />
+            <motion.div
+              layoutId={selectedItem.id}
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-[2.5rem] shadow-2xl w-full max-w-2xl overflow-hidden relative z-10 grid md:grid-cols-2"
+            >
+              <div className="aspect-[4/5] md:aspect-auto bg-stone-100 relative">
+                <img
+                  src={selectedItem.image}
+                  alt={selectedItem.description}
+                  className="w-full h-full object-cover"
+                />
+                <button
+                  onClick={() => setSelectedItem(null)}
+                  className="absolute top-4 left-4 p-2 bg-white/90 rounded-full text-stone-900 shadow-lg hover:bg-white transition-colors"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-8 md:p-10 flex flex-col justify-between max-h-[80vh] overflow-y-auto">
+                <div>
+                  <div className="flex items-center gap-2 mb-4">
+                    <span className="px-3 py-1 bg-indigo-50 text-indigo-600 text-[10px] font-bold rounded-full uppercase tracking-widest">
+                      {selectedItem.category}
+                    </span>
+                    <span className="text-stone-300">•</span>
+                    <span className="text-stone-500 text-xs font-medium uppercase tracking-widest">
+                      {selectedItem.subCategory}
+                    </span>
+                  </div>
+                  <h3 className="text-2xl font-extrabold text-stone-900 mb-6 leading-tight">
+                    {selectedItem.description}
+                  </h3>
+
+                  <div className="space-y-6">
+                    <div className="flex gap-10">
+                      <div>
+                        <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1">Renk</p>
+                        <p className="text-sm font-bold text-stone-900">{selectedItem.color}</p>
+                      </div>
+                      <div>
+                        <p className="text-[10px] font-bold text-stone-400 uppercase tracking-widest mb-1">Stil</p>
+                        <p className="text-sm font-bold text-stone-900">{selectedItem.style}</p>
+                      </div>
+                    </div>
+
+                    <div className="p-6 bg-stone-50 rounded-3xl border border-stone-100 relative overflow-hidden group">
+                      <Sparkles className="absolute -top-2 -right-2 w-12 h-12 text-indigo-200/40 group-hover:scale-110 transition-transform" />
+                      <h5 className="flex items-center gap-2 text-indigo-600 text-xs font-bold uppercase tracking-widest mb-3">
+                        <Info className="w-3 h-3" />
+                        AI Stil Danışmanı
+                      </h5>
+                      <p className="text-stone-600 text-sm leading-relaxed italic">
+                        {selectedItem.stylingAdvice || "Bu parça için henüz styling tavsiyesi oluşturulmamış. Yeni parçalar ekledikçe Gemini size özel tavsiyeler verecek!"}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => setSelectedItem(null)}
+                  className="mt-8 w-full py-4 bg-stone-900 text-white font-bold rounded-2xl hover:bg-stone-800 transition-all flex items-center justify-center gap-2 group"
+                >
+                  Kapat
+                  <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
       {/* Add Modal */}
       {isAdding && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-stone-900/50 backdrop-blur-sm">
-          <div className="bg-white rounded-3xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex justify-between items-center p-6 border-b border-stone-100">
-              <h3 className="text-xl font-bold text-stone-900">Eşya Ekle</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            onClick={() => setIsAdding(false)}
+            className="absolute inset-0 bg-stone-900/50 backdrop-blur-sm"
+          />
+          <motion.div
+            initial={{ scale: 0.9, opacity: 0, y: 20 }}
+            animate={{ scale: 1, opacity: 1, y: 0 }}
+            className="bg-white rounded-[2rem] shadow-2xl w-full max-w-md overflow-hidden relative z-10"
+          >
+            <div className="flex justify-between items-center p-8 border-b border-stone-50">
+              <h3 className="text-2xl font-extrabold text-stone-900">Eşya Ekle</h3>
               <button
                 onClick={() => setIsAdding(false)}
-                className="text-stone-400 hover:text-stone-600 transition-colors"
+                className="text-stone-400 hover:text-stone-600 transition-colors p-2 hover:bg-stone-50 rounded-full"
                 disabled={isLoading}
               >
                 <X className="w-6 h-6" />
               </button>
             </div>
-            <div className="p-6">
+            <div className="p-8">
               {error && (
-                <div className="mb-4 p-4 bg-red-50 text-red-600 rounded-xl text-sm">
+                <motion.div
+                  initial={{ x: -10, opacity: 0 }}
+                  animate={{ x: 0, opacity: 1 }}
+                  className="mb-6 p-4 bg-red-50 text-red-600 rounded-2xl text-xs font-bold uppercase tracking-wide border border-red-100"
+                >
                   {error}
-                </div>
+                </motion.div>
               )}
 
-              <div className="space-y-4">
-                <p className="text-stone-600 text-sm text-center mb-6">
-                  Bir fotoğraf yükleyin veya görsel linki yapıştırın. Yapay zeka eşyanızı otomatik olarak analiz edip kategorize edecektir.
+              <div className="space-y-6">
+                <p className="text-stone-500 text-sm text-center font-medium">
+                  Yapay zeka eşyanızı otomatik olarak analiz edip size özel <span className="text-indigo-600 font-bold">styling tavsiyeleri</span> hazırlayacaktır.
                 </p>
 
                 <input
@@ -311,22 +517,28 @@ export default function Wardrobe({
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isLoading}
-                  className="w-full flex flex-col items-center justify-center gap-3 p-6 border-2 border-dashed border-stone-300 rounded-2xl hover:border-indigo-500 hover:bg-indigo-50 transition-colors group disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full flex flex-col items-center justify-center gap-4 p-10 border-2 border-dashed border-stone-200 rounded-3xl hover:border-indigo-400 hover:bg-indigo-50/50 transition-all group disabled:opacity-50 disabled:cursor-not-allowed shadow-inner"
                 >
                   {isLoading ? (
-                    <Loader2 className="w-8 h-8 text-indigo-600 animate-spin" />
+                    <div className="relative">
+                      <Loader2 className="w-12 h-12 text-indigo-600 animate-spin" />
+                      <Sparkles className="absolute -top-2 -right-2 w-6 h-6 text-indigo-400 animate-pulse" />
+                    </div>
                   ) : (
-                    <Camera className="w-8 h-8 text-stone-400 group-hover:text-indigo-600 transition-colors" />
+                    <Camera className="w-12 h-12 text-stone-300 group-hover:text-indigo-500 transition-all group-hover:scale-110" />
                   )}
-                  <span className="font-medium text-stone-700 group-hover:text-indigo-700">
-                    {isLoading ? 'Analiz Ediliyor...' : 'Fotoğraf Çek veya Seç'}
-                  </span>
+                  <div className="text-center">
+                    <span className="block font-bold text-stone-700 group-hover:text-indigo-900 mb-1">
+                      {isLoading ? 'Moda Analizi Yapılıyor...' : 'Fotoğraf Çek veya Seç'}
+                    </span>
+                    {!isLoading && <span className="text-[10px] text-stone-400 font-bold uppercase tracking-widest">Kamerayı Başlat</span>}
+                  </div>
                 </button>
 
                 <div className="relative flex items-center py-2">
-                  <div className="flex-grow border-t border-stone-200"></div>
-                  <span className="flex-shrink-0 mx-4 text-stone-400 text-sm">veya</span>
-                  <div className="flex-grow border-t border-stone-200"></div>
+                  <div className="flex-grow border-t border-stone-100"></div>
+                  <span className="flex-shrink-0 mx-6 text-stone-300 text-[10px] font-bold uppercase tracking-[0.2em]">veya link</span>
+                  <div className="flex-grow border-t border-stone-100"></div>
                 </div>
 
                 <form onSubmit={async (e) => {
@@ -363,6 +575,7 @@ export default function Wardrobe({
                       description: analysis.description,
                       color: analysis.color,
                       style: analysis.style,
+                      stylingAdvice: analysis.stylingAdvice,
                       createdAt: Date.now(),
                     };
 
@@ -373,25 +586,25 @@ export default function Wardrobe({
                   } finally {
                     setIsLoading(false);
                   }
-                }} className="flex gap-2">
+                }} className="flex gap-2 p-1.5 bg-stone-50 rounded-2xl border border-stone-200 focus-within:ring-2 focus-within:ring-indigo-500 transition-all">
                   <input
                     type="url"
                     name="url"
-                    placeholder="Görsel linki (URL) yapıştırın"
-                    className="flex-1 px-4 py-3 rounded-xl border border-stone-200 bg-stone-50 focus:bg-white focus:ring-2 focus:ring-indigo-500 focus:border-transparent transition-all outline-none text-sm"
+                    placeholder="Ürün veya görsel URL'si..."
+                    className="flex-1 px-4 py-3 bg-transparent outline-none text-sm font-medium"
                     disabled={isLoading}
                   />
                   <button
                     type="submit"
                     disabled={isLoading}
-                    className="px-4 py-3 bg-stone-900 text-white rounded-xl hover:bg-stone-800 transition-colors disabled:opacity-50"
+                    className="p-3 bg-stone-900 text-white rounded-xl hover:bg-stone-800 transition-all active:scale-95 shadow-sm disabled:opacity-50"
                   >
                     <LinkIcon className="w-5 h-5" />
                   </button>
                 </form>
               </div>
             </div>
-          </div>
+          </motion.div>
         </div>
       )}
     </div>
