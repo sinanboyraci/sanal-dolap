@@ -11,6 +11,10 @@ async function startServer() {
     res.json({ status: "ok" });
   });
 
+  app.get("/api/config", (req, res) => {
+    res.json({ geminiApiKey: process.env.GEMINI_API_KEY || '' });
+  });
+
   app.get("/api/proxy-image", async (req, res) => {
     try {
       const imageUrl = req.query.url as string;

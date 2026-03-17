@@ -1,9 +1,37 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { Category, SubCategory, MannequinProfile, WardrobeItem, WARDROBE_CATEGORIES } from '../types';
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+let aiClient: GoogleGenAI | null = null;
 
+async function getAiClient(): Promise<GoogleGenAI> {
+  if (aiClient) return aiClient;
+
+  // In development, Vite provides process.env.GEMINI_API_KEY via define.
+  // In production (Cloud Run), Vite defines process.env.GEMINI_API_KEY as undefined
+  // if it wasn't present at build time.
+  const buildTimeKey = process.env.GEMINI_API_KEY;
+
+  if (buildTimeKey) {
+    aiClient = new GoogleGenAI({ apiKey: buildTimeKey });
+    return aiClient;
+  }
+
+  // Fetch from the backend at runtime
+  try {
+    const response = await fetch('/api/config');
+    const data = await response.json();
+    if (data.geminiApiKey) {
+      aiClient = new GoogleGenAI({ apiKey: data.geminiApiKey });
+      return aiClient;
+    }
+  } catch (error) {
+    console.error("Failed to fetch API key from backend:", error);
+  }
+
+  throw new Error("GEMINI_API_KEY is missing. It must be provided either at build time or via the /api/config endpoint.");
+}
 export async function analyzeClothingItem(base64Image: string, mimeType: string) {
+  const ai = await getAiClient();
   const response = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: {
@@ -56,7 +84,7 @@ export async function analyzeClothingItem(base64Image: string, mimeType: string)
 
   const text = response.text;
   if (!text) throw new Error('Failed to analyze image');
-  
+
   const cleanedText = text.replace(/```json/g, '').replace(/```/g, '').trim();
 
   return JSON.parse(cleanedText) as {
@@ -85,6 +113,7 @@ export async function generateOutfitRecommendation(
     }))
   );
 
+  const ai = await getAiClient();
   const selectionResponse = await ai.models.generateContent({
     model: 'gemini-3-flash-preview',
     contents: `
