@@ -12,6 +12,70 @@ async function setupServer(app: express.Express) {
     res.json({ geminiApiKey: process.env.GEMINI_API_KEY || '' });
   });
 
+  app.get("/api/scrape-product", async (req, res) => {
+    try {
+      const targetUrl = req.query.url as string;
+      if (!targetUrl) return res.status(400).json({ error: "URL is required" });
+
+      const fetchWithHeaders = async (url: string) => {
+        return fetch(url, {
+          headers: {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+            "Accept-Language": "tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7",
+          }
+        });
+      };
+
+      let imageUrls: string[] = [];
+      let response = await fetchWithHeaders(targetUrl);
+
+      // If blocked or 404, try Microlink immediately as fallback
+      if (!response.ok || response.status === 403 || response.status === 404) {
+        const mlRes = await fetch(`https://api.microlink.io?url=${encodeURIComponent(targetUrl)}&screenshot=true&meta=false`);
+        const mlJson = await mlRes.json();
+        if (mlJson.status === 'success' && mlJson.data?.screenshot?.url) {
+          imageUrls.push(mlJson.data.screenshot.url);
+        }
+      } else {
+        const html = await response.text();
+
+        // Use regex for simple server-side extraction without heavy DOM libraries
+        const ogImageMatch = html.match(/property="og:image"\s+content="([^"]+)"/);
+        if (ogImageMatch) imageUrls.push(ogImageMatch[1]);
+
+        const twitterImageMatch = html.match(/name="twitter:image"\s+content="([^"]+)"/);
+        if (twitterImageMatch) imageUrls.push(twitterImageMatch[1]);
+
+        // Look for large images or product images in common patterns
+        const imgMatches = html.matchAll(/<img[^>]+src="([^">]+(jpg|jpeg|png|webp)[^">]*)"/gi);
+        for (const match of Array.from(imgMatches).slice(0, 10)) {
+          const src = match[1];
+          if (!src.includes('logo') && !src.includes('icon') && !src.includes('avatar')) {
+            imageUrls.push(src);
+          }
+        }
+      }
+
+      // De-duplicate and normalize URLs
+      const finalUrls = [...new Set(imageUrls)].map(u => {
+        if (u.startsWith('//')) return `https:${u}`;
+        if (u.startsWith('/')) {
+          try {
+            const base = new URL(targetUrl);
+            return `${base.origin}${u}`;
+          } catch { return u; }
+        }
+        return u;
+      });
+
+      res.json({ imageUrls: finalUrls });
+    } catch (error) {
+      console.error("Scrape error:", error);
+      res.status(500).json({ error: "Failed to scrape product" });
+    }
+  });
+
   app.get("/api/proxy-image", async (req, res) => {
     try {
       const imageUrl = req.query.url as string;
@@ -21,9 +85,8 @@ async function setupServer(app: express.Express) {
 
       const response = await fetch(imageUrl, {
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-          "Accept": "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.9",
+          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+          "Accept": req.headers.accept || "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
           "Referer": new URL(imageUrl).origin
         }
       });
@@ -37,11 +100,12 @@ async function setupServer(app: express.Express) {
         res.setHeader("Content-Type", contentType);
       }
 
+      // Cache for 1 day
+      res.setHeader("Cache-Control", "public, max-age=86400");
+
       const arrayBuffer = await response.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
-      res.send(buffer);
+      res.send(Buffer.from(arrayBuffer));
     } catch (error) {
-      console.error("Proxy error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });

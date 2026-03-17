@@ -77,102 +77,50 @@ const fetchImageFromUrl = async (url: string): Promise<string> => {
     throw new Error('Linke erişilemedi (CORS veya Ağ hatası). Lütfen farklı bir link deneyin veya fotoğrafı cihazınıza indirip yükleyin.');
   };
 
-  let response: Response;
-  try {
-    response = await fetch(`/api/proxy-image?url=${encodeURIComponent(url)}`);
-    if (!response.ok) {
-      return await tryMicrolinkFallback(url);
-    }
+  // If it doesn't look like a direct image URL, try scraping first
+  if (!isImageUrl) {
+    try {
+      const scrapeRes = await fetch(`/api/scrape-product?url=${encodeURIComponent(url)}`);
+      if (scrapeRes.ok) {
+        const { imageUrls } = await scrapeRes.json();
 
-    const ct = response.headers.get('content-type') || '';
-    if (isImageUrl && !ct.includes('image/') && !ct.includes('application/octet-stream')) {
-      return await tryMicrolinkFallback(url);
-    }
-  } catch (e) {
-    return await tryMicrolinkFallback(url);
-  }
-
-  const contentType = response.headers.get('content-type') || '';
-
-  // If explicitly HTML, or if we have no proof it's an image
-  if (contentType.includes('text/html') || (!contentType.includes('image/') && !isImageUrl)) {
-    const text = await response.text();
-
-    // Check if it's a Cloudflare/Security challenge page
-    if (text.includes('Cloudflare') || text.includes('Güvenlik') || text.includes('captcha') || text.includes('Just a moment...')) {
-      return await tryMicrolinkFallback(url);
-    }
-
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(text, 'text/html');
-
-    // Collect multiple candidate images in case the first one is broken
-    const candidateUrls: string[] = [];
-
-    const addCandidate = (val: string | null | undefined) => {
-      if (val && !candidateUrls.includes(val)) candidateUrls.push(val);
-    };
-
-    addCandidate(doc.querySelector('meta[property="og:image"]')?.getAttribute('content'));
-    addCandidate(doc.querySelector('meta[name="twitter:image"]')?.getAttribute('content'));
-    addCandidate(doc.querySelector('link[rel="image_src"]')?.getAttribute('href'));
-
-    const primaryImg = doc.querySelector('img[src*="product"], img[src*="mnresize"], .product-image img, .product__image img, .swiper-slide img, .image-gallery img');
-    addCandidate(primaryImg?.getAttribute('src'));
-    addCandidate(primaryImg?.getAttribute('data-src'));
-
-    const allImages = Array.from(doc.querySelectorAll('img'));
-    allImages.forEach(img => {
-      const src = img.getAttribute('src') || img.getAttribute('data-src');
-      if (src && (src.includes('jpg') || src.includes('jpeg') || src.includes('png') || src.includes('webp'))) {
-        if (!src.includes('logo') && !src.includes('icon') && !src.includes('avatar') && !src.includes('svg')) {
-          addCandidate(src);
-        }
-      }
-    });
-
-    if (candidateUrls.length === 0) {
-      return await tryMicrolinkFallback(url);
-    }
-
-    // Try each candidate URL one by one until one works
-    for (let imageUrl of candidateUrls) {
-      if (imageUrl.startsWith('//')) {
-        imageUrl = `https:${imageUrl}`;
-      } else if (imageUrl.startsWith('/')) {
-        try {
-          const urlObj = new URL(url);
-          imageUrl = `${urlObj.origin}${imageUrl}`;
-        } catch {
-          // ignore invalid Base URL
-        }
-      }
-
-      try {
-        const imgResponse = await fetch(`/api/proxy-image?url=${encodeURIComponent(imageUrl)}`);
-        if (imgResponse.ok) {
-          const ct = imgResponse.headers.get('content-type') || '';
-          if (ct.includes('image/') || ct.includes('application/octet-stream')) {
-            const blob = await imgResponse.blob();
-            // Checking if the blob has an actual size so we don't return an empty/error blob
-            if (blob.size > 1000) {
-              return await blobToBase64(blob);
+        if (imageUrls && imageUrls.length > 0) {
+          // Try each extracted image until one works
+          for (const imgUrl of imageUrls) {
+            try {
+              const imgRes = await fetch(`/api/proxy-image?url=${encodeURIComponent(imgUrl)}`);
+              if (imgRes.ok) {
+                const blob = await imgRes.blob();
+                if (blob.size > 1000) {
+                  return await blobToBase64(blob);
+                }
+              }
+            } catch (e) {
+              console.warn('Failed to fetch extracted image:', imgUrl);
             }
           }
         }
-      } catch (e) {
-        // Skip failed candidates
-        console.warn('Skipping broken candidate image:', imageUrl);
       }
+    } catch (e) {
+      console.error('Scraping failed:', e);
     }
 
-    // If we've looped through all candidates and none worked
+    // Fallback to Microlink if scraping found nothing or all images failed
     return await tryMicrolinkFallback(url);
   }
 
-  // Otherwise, treat the initial response as an image
-  const blob = await response.blob();
-  return await blobToBase64(blob);
+  // If it's a direct image URL (or looked like one), proxy it
+  try {
+    const response = await fetch(`/api/proxy-image?url=${encodeURIComponent(url)}`);
+    if (response.ok) {
+      const blob = await response.blob();
+      return await blobToBase64(blob);
+    }
+  } catch (e) {
+    console.error('Direct proxy failed:', e);
+  }
+
+  return await tryMicrolinkFallback(url);
 };
 
 export default function Wardrobe({
@@ -257,8 +205,8 @@ export default function Wardrobe({
         <button
           onClick={() => setActiveCategory('Tümü')}
           className={`whitespace-nowrap px-4 py-2 rounded-full text-sm font-medium transition-colors ${activeCategory === 'Tümü'
-              ? 'bg-stone-900 text-white'
-              : 'bg-white text-stone-600 hover:bg-stone-100 border border-stone-200'
+            ? 'bg-stone-900 text-white'
+            : 'bg-white text-stone-600 hover:bg-stone-100 border border-stone-200'
             }`}
         >
           Tümü
@@ -268,8 +216,8 @@ export default function Wardrobe({
             key={cat}
             onClick={() => setActiveCategory(cat)}
             className={`whitespace-nowrap px-4 py-2 rounded-full text-sm font-medium transition-colors ${activeCategory === cat
-                ? 'bg-stone-900 text-white'
-                : 'bg-white text-stone-600 hover:bg-stone-100 border border-stone-200'
+              ? 'bg-stone-900 text-white'
+              : 'bg-white text-stone-600 hover:bg-stone-100 border border-stone-200'
               }`}
           >
             {cat}
