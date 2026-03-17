@@ -43,12 +43,12 @@ const compressImage = (base64Str: string, maxWidth = 1024, maxHeight = 1024): Pr
         resolve(base64Str);
         return;
       }
-      
+
       // Fill white background for transparent PNGs
       ctx.fillStyle = '#FFFFFF';
       ctx.fillRect(0, 0, width, height);
       ctx.drawImage(img, 0, 0, width, height);
-      
+
       // Always output as JPEG to reduce size and ensure compatibility
       resolve(canvas.toDataURL('image/jpeg', 0.8));
     };
@@ -83,7 +83,7 @@ const fetchImageFromUrl = async (url: string): Promise<string> => {
     if (!response.ok) {
       return await tryMicrolinkFallback(url);
     }
-    
+
     const ct = response.headers.get('content-type') || '';
     if (isImageUrl && !ct.includes('image/') && !ct.includes('application/octet-stream')) {
       return await tryMicrolinkFallback(url);
@@ -91,13 +91,13 @@ const fetchImageFromUrl = async (url: string): Promise<string> => {
   } catch (e) {
     return await tryMicrolinkFallback(url);
   }
-  
+
   const contentType = response.headers.get('content-type') || '';
-  
-  // If it's explicitly HTML, or if we have no proof it's an image (not image content-type and doesn't look like an image URL)
+
+  // If explicitly HTML, or if we have no proof it's an image
   if (contentType.includes('text/html') || (!contentType.includes('image/') && !isImageUrl)) {
     const text = await response.text();
-    
+
     // Check if it's a Cloudflare/Security challenge page
     if (text.includes('Cloudflare') || text.includes('Güvenlik') || text.includes('captcha') || text.includes('Just a moment...')) {
       return await tryMicrolinkFallback(url);
@@ -105,59 +105,72 @@ const fetchImageFromUrl = async (url: string): Promise<string> => {
 
     const parser = new DOMParser();
     const doc = parser.parseFromString(text, 'text/html');
-    
-    let imageUrl = doc.querySelector('meta[property="og:image"]')?.getAttribute('content') ||
-                   doc.querySelector('meta[name="twitter:image"]')?.getAttribute('content') ||
-                   doc.querySelector('link[rel="image_src"]')?.getAttribute('href');
-    
-    if (!imageUrl) {
-      const img = doc.querySelector('img[src*="product"], img[src*="mnresize"], .product-image img, .product__image img, .swiper-slide img, .image-gallery img');
-      imageUrl = img?.getAttribute('src') || img?.getAttribute('data-src');
+
+    // Collect multiple candidate images in case the first one is broken
+    const candidateUrls: string[] = [];
+
+    const addCandidate = (val: string | null | undefined) => {
+      if (val && !candidateUrls.includes(val)) candidateUrls.push(val);
+    };
+
+    addCandidate(doc.querySelector('meta[property="og:image"]')?.getAttribute('content'));
+    addCandidate(doc.querySelector('meta[name="twitter:image"]')?.getAttribute('content'));
+    addCandidate(doc.querySelector('link[rel="image_src"]')?.getAttribute('href'));
+
+    const primaryImg = doc.querySelector('img[src*="product"], img[src*="mnresize"], .product-image img, .product__image img, .swiper-slide img, .image-gallery img');
+    addCandidate(primaryImg?.getAttribute('src'));
+    addCandidate(primaryImg?.getAttribute('data-src'));
+
+    const allImages = Array.from(doc.querySelectorAll('img'));
+    allImages.forEach(img => {
+      const src = img.getAttribute('src') || img.getAttribute('data-src');
+      if (src && (src.includes('jpg') || src.includes('jpeg') || src.includes('png') || src.includes('webp'))) {
+        if (!src.includes('logo') && !src.includes('icon') && !src.includes('avatar') && !src.includes('svg')) {
+          addCandidate(src);
+        }
+      }
+    });
+
+    if (candidateUrls.length === 0) {
+      return await tryMicrolinkFallback(url);
     }
 
-    // Fallback: Find any large/product-like image
-    if (!imageUrl) {
-      const allImages = Array.from(doc.querySelectorAll('img'));
-      const possibleImages = allImages
-        .map(img => img.getAttribute('src') || img.getAttribute('data-src'))
-        .filter(src => src && (src.includes('jpg') || src.includes('jpeg') || src.includes('png') || src.includes('webp')))
-        .filter(src => !src?.includes('logo') && !src?.includes('icon') && !src?.includes('avatar') && !src?.includes('svg'));
-        
-      if (possibleImages.length > 0) {
-        imageUrl = possibleImages[0];
+    // Try each candidate URL one by one until one works
+    for (let imageUrl of candidateUrls) {
+      if (imageUrl.startsWith('//')) {
+        imageUrl = `https:${imageUrl}`;
+      } else if (imageUrl.startsWith('/')) {
+        try {
+          const urlObj = new URL(url);
+          imageUrl = `${urlObj.origin}${imageUrl}`;
+        } catch {
+          // ignore invalid Base URL
+        }
+      }
+
+      try {
+        const imgResponse = await fetch(`/api/proxy-image?url=${encodeURIComponent(imageUrl)}`);
+        if (imgResponse.ok) {
+          const ct = imgResponse.headers.get('content-type') || '';
+          if (ct.includes('image/') || ct.includes('application/octet-stream')) {
+            const blob = await imgResponse.blob();
+            // Checking if the blob has an actual size so we don't return an empty/error blob
+            if (blob.size > 1000) {
+              return await blobToBase64(blob);
+            }
+          }
+        }
+      } catch (e) {
+        // Skip failed candidates
+        console.warn('Skipping broken candidate image:', imageUrl);
       }
     }
-    
-    if (!imageUrl) {
-      return await tryMicrolinkFallback(url);
-    }
-    
-    if (imageUrl.startsWith('//')) {
-      imageUrl = `https:${imageUrl}`;
-    } else if (imageUrl.startsWith('/')) {
-      const urlObj = new URL(url);
-      imageUrl = `${urlObj.origin}${imageUrl}`;
-    }
-    
-    try {
-      const imgResponse = await fetch(`/api/proxy-image?url=${encodeURIComponent(imageUrl)}`);
-      if (!imgResponse.ok) {
-        return await tryMicrolinkFallback(url);
-      }
-      
-      const ct = imgResponse.headers.get('content-type') || '';
-      if (!ct.includes('image/') && !ct.includes('application/octet-stream')) {
-        return await tryMicrolinkFallback(url);
-      }
-      
-      const blob = await imgResponse.blob();
-      return await blobToBase64(blob);
-    } catch (e) {
-      return await tryMicrolinkFallback(url);
-    }
+
+    // If we've looped through all candidates and none worked
+    return await tryMicrolinkFallback(url);
   }
-  
-  // Otherwise, treat it as an image
+
+  // Otherwise, treat the initial response as an image
   const blob = await response.blob();
   return await blobToBase64(blob);
 };
@@ -194,7 +207,7 @@ export default function Wardrobe({
       reader.onloadend = async () => {
         const rawBase64String = reader.result as string;
         const base64String = await compressImage(rawBase64String);
-        
+
         // Extract base64 data and mime type
         const match = base64String.match(/^data:(image\/[a-zA-Z]*);base64,(.*)$/);
         if (!match) throw new Error('Invalid image format');
@@ -243,11 +256,10 @@ export default function Wardrobe({
       <div className="flex overflow-x-auto pb-2 gap-2 scrollbar-hide">
         <button
           onClick={() => setActiveCategory('Tümü')}
-          className={`whitespace-nowrap px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-            activeCategory === 'Tümü'
+          className={`whitespace-nowrap px-4 py-2 rounded-full text-sm font-medium transition-colors ${activeCategory === 'Tümü'
               ? 'bg-stone-900 text-white'
               : 'bg-white text-stone-600 hover:bg-stone-100 border border-stone-200'
-          }`}
+            }`}
         >
           Tümü
         </button>
@@ -255,11 +267,10 @@ export default function Wardrobe({
           <button
             key={cat}
             onClick={() => setActiveCategory(cat)}
-            className={`whitespace-nowrap px-4 py-2 rounded-full text-sm font-medium transition-colors ${
-              activeCategory === cat
+            className={`whitespace-nowrap px-4 py-2 rounded-full text-sm font-medium transition-colors ${activeCategory === cat
                 ? 'bg-stone-900 text-white'
                 : 'bg-white text-stone-600 hover:bg-stone-100 border border-stone-200'
-            }`}
+              }`}
           >
             {cat}
           </button>
@@ -335,12 +346,12 @@ export default function Wardrobe({
                   {error}
                 </div>
               )}
-              
+
               <div className="space-y-4">
                 <p className="text-stone-600 text-sm text-center mb-6">
                   Bir fotoğraf yükleyin veya görsel linki yapıştırın. Yapay zeka eşyanızı otomatik olarak analiz edip kategorize edecektir.
                 </p>
-                
+
                 <input
                   type="file"
                   accept="image/*"
@@ -348,7 +359,7 @@ export default function Wardrobe({
                   ref={fileInputRef}
                   onChange={handleFileChange}
                 />
-                
+
                 <button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isLoading}
@@ -383,13 +394,13 @@ export default function Wardrobe({
                   try {
                     const rawBase64String = await fetchImageFromUrl(url);
                     const base64String = await compressImage(rawBase64String);
-                    
+
                     const match = base64String.match(/^data:(.*?);base64,(.*)$/);
                     if (!match) throw new Error('Geçersiz görsel formatı');
 
                     let mimeType = match[1];
                     const data = match[2];
-                    
+
                     if (!mimeType.startsWith('image/')) {
                       mimeType = 'image/jpeg';
                     }
