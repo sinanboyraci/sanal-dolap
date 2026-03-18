@@ -581,25 +581,57 @@ export default function Wardrobe({
                   setIsLoading(true);
                   setError(null);
 
+                  let finalBase64String = '';
+                  let mimeType = 'image/jpeg';
+                  let rawData = '';
+                  let scrapeFailed = false;
+
                   try {
                     const rawBase64String = await fetchImageFromUrl(url);
-                    const base64String = await compressImage(rawBase64String);
+                    finalBase64String = await compressImage(rawBase64String);
 
-                    const match = base64String.match(/^data:(.*?);base64,(.*)$/);
-                    if (!match) throw new Error('Geçersiz görsel formatı');
-
-                    let mimeType = match[1];
-                    const data = match[2];
-
-                    if (!mimeType.startsWith('image/')) {
-                      mimeType = 'image/jpeg';
+                    const match = finalBase64String.match(/^data:(.*?);base64,(.*)$/);
+                    if (match) {
+                      mimeType = match[1];
+                      rawData = match[2];
+                      if (!mimeType.startsWith('image/')) {
+                        mimeType = 'image/jpeg';
+                      }
+                    } else {
+                      scrapeFailed = true;
                     }
+                  } catch (fetchErr) {
+                    console.warn('Scraping completely failed, relying entirely on AI fallback:', fetchErr);
+                    scrapeFailed = true;
+                  }
 
-                    const analysis = await analyzeClothingItem(data, mimeType, items);
+                  try {
+                    // Send to Gemini. If scrapeFailed is true, pass null for image, letting Gemini read the URL text.
+                    const analysis = await analyzeClothingItem(
+                      scrapeFailed ? null : rawData,
+                      scrapeFailed ? null : mimeType,
+                      items,
+                      url
+                    );
+
+                    // If Gemini realized the image was an error page, or if we had no image, we generate a new one via AI
+                    if (analysis.isFallback || scrapeFailed) {
+                      try {
+                        const pollinationsUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(analysis.imagePrompt)}?width=800&height=1000&nologo=true`;
+                        const genRes = await fetch(pollinationsUrl);
+                        const genBlob = await genRes.blob();
+                        const genBase64 = await blobToBase64(genBlob);
+                        finalBase64String = await compressImage(genBase64);
+                      } catch (genErr) {
+                        console.error('Failed to generate fallback image:', genErr);
+                        // At least provide a placeholder if image generation totally fails
+                        if (!finalBase64String) throw new Error('Ürün linkten bulunamadı ve görsel üretilemedi.');
+                      }
+                    }
 
                     const newItem: WardrobeItem = {
                       id: uuidv4(),
-                      image: base64String,
+                      image: finalBase64String,
                       category: analysis.category,
                       subCategory: analysis.subCategory,
                       description: analysis.description,

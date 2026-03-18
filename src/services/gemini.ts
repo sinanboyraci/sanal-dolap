@@ -30,7 +30,7 @@ async function getAiClient(): Promise<GoogleGenAI> {
 
   throw new Error("GEMINI_API_KEY is missing. It must be provided either at build time or via the /api/config endpoint.");
 }
-export async function analyzeClothingItem(base64Image: string, mimeType: string, wardrobe?: WardrobeItem[]) {
+export async function analyzeClothingItem(base64Image: string | null, mimeType: string | null, wardrobe?: WardrobeItem[], itemUrl?: string) {
   const ai = await getAiClient();
 
   let wardrobeContext = '';
@@ -58,29 +58,45 @@ export async function analyzeClothingItem(base64Image: string, mimeType: string,
     `;
   }
 
+  const parts: any[] = [];
+  
+  if (base64Image && mimeType) {
+    parts.push({
+      inlineData: {
+        data: base64Image,
+        mimeType: mimeType,
+      },
+    });
+  }
+
+  parts.push({
+    text: `Analyze the clothing item.
+    ${itemUrl ? `The user provided the following product URL: ${itemUrl}` : ''}
+
+    CRITICAL INSTRUCTION: If an image is provided, analyze the clothing in the image. 
+    However, if the image is clearly an ERROR PAGE, a 404 message, a cookie consent banner, just text, or a brand logo, YOU MUST IGNORE THE IMAGE. 
+    Instead, rely on the itemUrl (if provided) and extract the clothing details (name, color, category) from the URL text itself (e.g., 'mavi-jean-pantolon' -> blue jeans).
+    If no image is provided, also deduce the details from the URL.
+
+    Provide its category, subCategory, a short description, its primary color, and its style in Turkish. 
+    Also, write "stylingAdvice" - a detailed Turkish styling suggestion describing what other items from a wardrobe 
+    (like which colors, patterns, or types of pants/shirts/shoes) would pair beautifully with this item.
+
+    You must also return:
+    - isFallback (boolean): Set to true if you had to guess the item from the URL or if the image was broken/invalid.
+    - imagePrompt (string): A highly detailed English prompt to generate a photorealistic studio photo of this EXACT clothing item (as deduced) standalone on a clean white background. Do not describe a model wearing it, just the item.
+    
+    ${wardrobeContext}
+    
+    Valid categories and their subcategories are:
+    ${JSON.stringify(WARDROBE_CATEGORIES, null, 2)}
+    `,
+  });
+
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash',
     contents: {
-      parts: [
-        {
-          inlineData: {
-            data: base64Image,
-            mimeType: mimeType,
-          },
-        },
-        {
-          text: `Analyze this clothing item in Turkish. 
-          Provide its category, subCategory, a short description, its primary color, and its style. 
-          Also, write "stylingAdvice" - a detailed Turkish styling suggestion describing what other items from a wardrobe 
-          (like which colors, patterns, or types of pants/shirts/shoes) would pair beautifully with this item.
-          
-          ${wardrobeContext}
-          
-          Valid categories and their subcategories are:
-          ${JSON.stringify(WARDROBE_CATEGORIES, null, 2)}
-          `,
-        },
-      ],
+      parts: parts,
     },
     config: {
       responseMimeType: 'application/json',
@@ -112,6 +128,14 @@ export async function analyzeClothingItem(base64Image: string, mimeType: string,
             type: Type.STRING,
             description: 'Detailed Turkish styling advice for this item.',
           },
+          isFallback: {
+            type: Type.BOOLEAN,
+            description: 'Set to true if the image was ignored/invalid and you deduced the item from the URL.',
+          },
+          imagePrompt: {
+            type: Type.STRING,
+            description: 'English prompt for an AI image generator to create a picture of this clothing item.',
+          },
           quickMatches: {
             type: Type.ARRAY,
             items: {
@@ -124,7 +148,7 @@ export async function analyzeClothingItem(base64Image: string, mimeType: string,
             },
           },
         },
-        required: ['category', 'subCategory', 'description', 'color', 'style', 'stylingAdvice'],
+        required: ['category', 'subCategory', 'description', 'color', 'style', 'stylingAdvice', 'isFallback', 'imagePrompt'],
       },
     },
   });
@@ -141,6 +165,8 @@ export async function analyzeClothingItem(base64Image: string, mimeType: string,
     color: string;
     style: string;
     stylingAdvice: string;
+    isFallback: boolean;
+    imagePrompt: string;
     quickMatches?: { itemIds: string[]; explanation: string }[];
   };
 }
