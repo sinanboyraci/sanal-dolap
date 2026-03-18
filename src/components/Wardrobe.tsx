@@ -2,7 +2,7 @@ import React, { useState, useRef } from 'react';
 import { Plus, Trash2, Camera, Link as LinkIcon, X, Loader2, Search, Filter, Sparkles, ChevronRight, Info } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
 import { WardrobeItem, Category, WARDROBE_CATEGORIES } from '../types';
-import { analyzeClothingItem, getQuickMatches } from '../services/gemini';
+import { analyzeClothingItem } from '../services/gemini';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const CATEGORIES: Category[] = Object.keys(WARDROBE_CATEGORIES) as Category[];
@@ -85,18 +85,19 @@ const fetchImageFromUrl = async (url: string): Promise<string> => {
         const { imageUrls } = await scrapeRes.json();
 
         if (imageUrls && imageUrls.length > 0) {
-          for (const imgUrl of imageUrls) {
-            try {
-              const imgRes = await fetch(`/api/proxy-image?url=${encodeURIComponent(imgUrl)}`);
-              if (imgRes.ok) {
+          try {
+            const base64Result = await Promise.any(
+              imageUrls.map(async (imgUrl: string) => {
+                const imgRes = await fetch(`/api/proxy-image?url=${encodeURIComponent(imgUrl)}`);
+                if (!imgRes.ok) throw new Error('Not ok');
                 const blob = await imgRes.blob();
-                if (blob.size > 1000) {
-                  return await blobToBase64(blob);
-                }
-              }
-            } catch (e) {
-              console.warn('Failed to fetch extracted image:', imgUrl);
-            }
+                if (blob.size <= 1000) throw new Error('Too small');
+                return await blobToBase64(blob);
+              })
+            );
+            return base64Result as string;
+          } catch (e) {
+            console.warn('Extracted images failed, falling back...');
           }
         }
       }
@@ -179,16 +180,7 @@ export default function Wardrobe({
       const mimeType = match[1];
       const data = match[2];
 
-      const analysis = await analyzeClothingItem(data, mimeType);
-
-      // Get quick matches with existing wardrobe
-      const matches = await getQuickMatches({
-        description: analysis.description,
-        category: analysis.category,
-        subCategory: analysis.subCategory,
-        color: analysis.color,
-        style: analysis.style
-      }, items);
+      const analysis = await analyzeClothingItem(data, mimeType, items);
 
       const newItem: WardrobeItem = {
         id: uuidv4(),
@@ -199,7 +191,7 @@ export default function Wardrobe({
         color: analysis.color,
         style: analysis.style,
         stylingAdvice: analysis.stylingAdvice,
-        quickMatches: matches?.suggestions,
+        quickMatches: analysis.quickMatches,
         createdAt: Date.now(),
       };
 
@@ -603,15 +595,7 @@ export default function Wardrobe({
                       mimeType = 'image/jpeg';
                     }
 
-                    const analysis = await analyzeClothingItem(data, mimeType);
-
-                    const matches = await getQuickMatches({
-                      description: analysis.description,
-                      category: analysis.category,
-                      subCategory: analysis.subCategory,
-                      color: analysis.color,
-                      style: analysis.style
-                    }, items);
+                    const analysis = await analyzeClothingItem(data, mimeType, items);
 
                     const newItem: WardrobeItem = {
                       id: uuidv4(),
@@ -622,7 +606,7 @@ export default function Wardrobe({
                       color: analysis.color,
                       style: analysis.style,
                       stylingAdvice: analysis.stylingAdvice,
-                      quickMatches: matches?.suggestions,
+                      quickMatches: analysis.quickMatches,
                       createdAt: Date.now(),
                     };
 

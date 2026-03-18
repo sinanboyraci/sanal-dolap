@@ -30,8 +30,34 @@ async function getAiClient(): Promise<GoogleGenAI> {
 
   throw new Error("GEMINI_API_KEY is missing. It must be provided either at build time or via the /api/config endpoint.");
 }
-export async function analyzeClothingItem(base64Image: string, mimeType: string) {
+export async function analyzeClothingItem(base64Image: string, mimeType: string, wardrobe?: WardrobeItem[]) {
   const ai = await getAiClient();
+
+  let wardrobeContext = '';
+  if (wardrobe && wardrobe.length > 0) {
+    const wardrobeJson = JSON.stringify(
+      wardrobe.slice(0, 30).map((item) => ({
+        id: item.id,
+        description: item.description,
+        category: item.category,
+        subCategory: item.subCategory,
+        color: item.color,
+        style: item.style,
+      }))
+    );
+    wardrobeContext = `
+    Ayrıca kullanıcının mevcut dolabı aşağıdadır:
+    ${wardrobeJson}
+    
+    Lütfen yeni ürünün kullanıcının dolabındaki diğer ürünlerle nasıl kombinlenebileceğine dair 2-3 adet çok kısa, vurucu ve moda odaklı kombin fikri (Instant Matches) öner.
+    Önerilen kombinler "quickMatches" adlı bir dizide döndürülmelidir (her biri itemIds ve explanation içerir).
+    KURALLAR:
+    1. Sadece kullanıcının dolabında (yukarıdaki wardrobeJson içindeki id'ler) olan ürünleri kullan.
+    2. Dil Türkçe olsun.
+    3. Her kombin önerisi için seçtiğin parçaların ID'lerini ve neden uyumlu olduklarına dair tek cümlelik bir açıklama yaz.
+    `;
+  }
+
   const response = await ai.models.generateContent({
     model: 'gemini-2.5-flash',
     contents: {
@@ -47,6 +73,8 @@ export async function analyzeClothingItem(base64Image: string, mimeType: string)
           Provide its category, subCategory, a short description, its primary color, and its style. 
           Also, write "stylingAdvice" - a detailed Turkish styling suggestion describing what other items from a wardrobe 
           (like which colors, patterns, or types of pants/shirts/shoes) would pair beautifully with this item.
+          
+          ${wardrobeContext}
           
           Valid categories and their subcategories are:
           ${JSON.stringify(WARDROBE_CATEGORIES, null, 2)}
@@ -84,6 +112,17 @@ export async function analyzeClothingItem(base64Image: string, mimeType: string)
             type: Type.STRING,
             description: 'Detailed Turkish styling advice for this item.',
           },
+          quickMatches: {
+            type: Type.ARRAY,
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                itemIds: { type: Type.ARRAY, items: { type: Type.STRING } },
+                explanation: { type: Type.STRING },
+              },
+              required: ['itemIds', 'explanation'],
+            },
+          },
         },
         required: ['category', 'subCategory', 'description', 'color', 'style', 'stylingAdvice'],
       },
@@ -102,69 +141,7 @@ export async function analyzeClothingItem(base64Image: string, mimeType: string)
     color: string;
     style: string;
     stylingAdvice: string;
-  };
-}
-
-export async function getQuickMatches(
-  newItem: { description: string; category: Category; subCategory: SubCategory; color: string; style: string },
-  wardrobe: WardrobeItem[]
-) {
-  if (wardrobe.length === 0) return null;
-
-  const wardrobeJson = JSON.stringify(
-    wardrobe.slice(0, 30).map((item) => ({
-      id: item.id,
-      description: item.description,
-      category: item.category,
-      subCategory: item.subCategory,
-      color: item.color,
-      style: item.style,
-    }))
-  );
-
-  const ai = await getAiClient();
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.5-flash',
-    contents: `
-      Yeni eklenen bir ürünümüz var: ${newItem.description} (${newItem.color}, ${newItem.style}, ${newItem.category}).
-      
-      Aşağıda kullanıcının mevcut dolabı var:
-      ${wardrobeJson}
-
-      Görevin: Bu yeni ürünün kullanıcının dolabındaki diğer ürünlerle nasıl kombinlenebileceğine dair 2-3 adet çok kısa, vurucu ve moda odaklı kombin fikri (Instant Matches) öner.
-      
-      KURALLAR:
-      1. Sadece kullanıcının dolabında (wardrobeJson içindeki id'ler) olan ürünleri kullan.
-      2. Dil Türkçe olsun.
-      3. Her kombin önerisi için seçtiğin parçaların ID'lerini ve neden uyumlu olduklarına dair tek cümlelik bir açıklama yaz.
-    `,
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: Type.OBJECT,
-        properties: {
-          suggestions: {
-            type: Type.ARRAY,
-            items: {
-              type: Type.OBJECT,
-              properties: {
-                itemIds: { type: Type.ARRAY, items: { type: Type.STRING } },
-                explanation: { type: Type.STRING },
-              },
-              required: ['itemIds', 'explanation'],
-            },
-          },
-        },
-        required: ['suggestions'],
-      },
-    },
-  });
-
-  const text = response.text;
-  if (!text) return null;
-  const cleanedText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-  return JSON.parse(cleanedText) as {
-    suggestions: { itemIds: string[]; explanation: string }[];
+    quickMatches?: { itemIds: string[]; explanation: string }[];
   };
 }
 
