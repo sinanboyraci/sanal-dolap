@@ -33,7 +33,7 @@ async function getAiClient(): Promise<GoogleGenAI> {
 export async function analyzeClothingItem(base64Image: string, mimeType: string) {
   const ai = await getAiClient();
   const response = await ai.models.generateContent({
-    model: 'gemini-1.5-flash',
+    model: 'gemini-2.5-flash',
     contents: {
       parts: [
         {
@@ -124,7 +124,7 @@ export async function getQuickMatches(
 
   const ai = await getAiClient();
   const response = await ai.models.generateContent({
-    model: 'gemini-1.5-flash',
+    model: 'gemini-2.5-flash',
     contents: `
       Yeni eklenen bir ürünümüz var: ${newItem.description} (${newItem.color}, ${newItem.style}, ${newItem.category}).
       
@@ -187,7 +187,7 @@ export async function generateOutfitRecommendation(
 
   const ai = await getAiClient();
   const selectionResponse = await ai.models.generateContent({
-    model: 'gemini-1.5-pro',
+    model: 'gemini-2.5-pro',
     contents: `
       You are an expert fashion stylist.
       Here is the user's wardrobe (JSON format):
@@ -242,7 +242,7 @@ export async function generateOutfitRecommendation(
 
   const results = await Promise.all(selection.selectedItems.map(async (option) => {
     const imageResponse = await ai.models.generateContent({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.5-flash',
       contents: {
         parts: [
           {
