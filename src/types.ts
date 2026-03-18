@@ -1,9 +1,8 @@
 export const WARDROBE_CATEGORIES = {
-  'Üst Giyim': ['Kaban', 'Mont', 'Triko Mont', 'Ceket', 'Kazak', 'Gömlek', 'T-Shirt', 'Hırka', 'Sweatshirt', 'Polo T-Shirt', 'Yelek', 'Takım Elbise', 'Smokin'],
-  'Alt Giyim': ['Pantolon', 'Şort', 'Mayo', 'Boxer'],
-  'Ayakkabı': ['Loafer', 'Klasik Ayakkabı', 'Bot'],
-  'Aksesuar': ['Çanta', 'Kemer', 'Kravat', 'Çorap', 'Mendil', 'Parfüm', 'Atkı'],
-  'Koleksiyon': ['Performans Serisi', 'Keten Koleksiyonu', 'Non-Iron Gömlek', 'Deri Koleksiyonu', 'Kaşmir Koleksiyonu', 'İpek Koleksiyonu']
+  'Üst Giyim': ['Kaban', 'Mont', 'Ceket', 'Kazak', 'Gömlek', 'T-Shirt', 'Hırka', 'Sweatshirt', 'Yelek', 'Takım Elbise'],
+  'Alt Giyim': ['Pantolon', 'Şort'],
+  'Ayakkabı': ['Klasik Ayakkabı', 'Bot', 'Spor Ayakkabı'],
+  'Aksesuar': ['Çanta', 'Kemer', 'Kravat', 'Atkı']
 } as const;
 
 export type Category = keyof typeof WARDROBE_CATEGORIES;
