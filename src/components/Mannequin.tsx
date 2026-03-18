@@ -10,12 +10,18 @@ export default function Mannequin({
   profile: MannequinProfile | null;
   onSave: (profile: MannequinProfile) => void;
 }) {
-  const [formData, setFormData] = useState<MannequinProfile>(
-    profile || {
+  const [formData, setFormData] = useState(
+    profile ? {
+      gender: profile.gender,
+      age: profile.age.toString(),
+      height: profile.height.toString(),
+      weight: profile.weight.toString(),
+      skinTone: profile.skinTone,
+    } : {
       gender: 'Kadın',
-      age: 25,
-      height: 170,
-      weight: 60,
+      age: '25',
+      height: '170',
+      weight: '60',
       skinTone: 'Buğday',
     }
   );
@@ -24,7 +30,14 @@ export default function Mannequin({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(formData);
+    onSave({
+      ...formData,
+      gender: formData.gender as 'Kadın' | 'Erkek' | 'Diğer',
+      skinTone: formData.skinTone as 'Açık' | 'Buğday' | 'Esmer' | 'Siyahi',
+      age: Number(formData.age) || 25,
+      height: Number(formData.height) || 170,
+      weight: Number(formData.weight) || 60,
+    });
     setIsSaved(true);
     setTimeout(() => setIsSaved(false), 3000);
   };
@@ -33,7 +46,7 @@ export default function Mannequin({
     const { name, value } = e.target;
     setFormData((prev) => ({
       ...prev,
-      [name]: name === 'age' || name === 'height' || name === 'weight' ? Number(value) : value,
+      [name]: value,
     }));
   };
 

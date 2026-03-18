@@ -1,11 +1,8 @@
 export const WARDROBE_CATEGORIES = {
-  'Dış Giyim': ['Kaban', 'Palto', 'Mont', 'Trençkot', 'Ceket', 'Yelek'],
-  'Üst Giyim': ['Gömlek', 'Bluz', 'Kazak', 'Hırka', 'Triko', 'Tişört', 'Sweatshirt'],
-  'Alt Giyim': ['Pantolon', 'Etek', 'Jean', 'Şort', 'Tayt'],
-  'Elbise & Tulum': ['Elbise', 'Tulum'],
-  'Ayakkabı': ['Topuklu Ayakkabı', 'Sneaker', 'Bot', 'Çizme', 'Babet', 'Loafer', 'Sandalet', 'Terlik'],
-  'Çanta': ['Omuz Çantası', 'Çapraz Çanta', 'El Çantası', 'Sırt Çantası', 'Portföy & Abiye Çanta'],
-  'Aksesuar': ['Şal', 'Eşarp', 'Kemer', 'Cüzdan', 'Takı', 'Gözlük', 'Şapka']
+  'Tekstil': ['T-Shirt', 'Gömlek', 'Teknik Üst', 'Polo T-shirt', 'Mont', 'Polar Üst', 'Yağmurluk', 'Pantolon', 'Sweatshirt', 'Softshell', 'Tulum', 'Şort', 'Deniz Şortu', 'Yelek', 'İç Giyim', 'Kaban', 'Palto', 'Trençkot', 'Ceket', 'Bluz', 'Kazak', 'Hırka', 'Triko', 'Tişört', 'Etek', 'Jean', 'Tayt', 'Elbise'],
+  'Ayakkabı': ['Ayakkabı', 'Bot', 'Terlik', 'Topuklu Ayakkabı', 'Sneaker', 'Çizme', 'Babet', 'Loafer', 'Sandalet'],
+  'Aksesuar': ['Şapka', 'Çorap', 'Bere', 'Eldiven', 'Şal', 'Eşarp', 'Kemer', 'Cüzdan', 'Takı', 'Gözlük', 'Çanta', 'Omuz Çantası', 'Çapraz Çanta', 'El Çantası', 'Sırt Çantası', 'Portföy & Abiye Çanta'],
+  'Ekipman': ['Çanta', 'Termos', 'Kamp Ekipmanları']
 } as const;
 
 export type Category = keyof typeof WARDROBE_CATEGORIES;

@@ -1,7 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { Plus, Trash2, Camera, Link as LinkIcon, X, Loader2, Search, Filter, Sparkles, ChevronRight, Info } from 'lucide-react';
 import { v4 as uuidv4 } from 'uuid';
-import { WardrobeItem, Category, WARDROBE_CATEGORIES } from '../types';
+import { WardrobeItem, Category, SubCategory, WARDROBE_CATEGORIES } from '../types';
 import { analyzeClothingItem } from '../services/gemini';
 import { motion, AnimatePresence } from 'framer-motion';
 
@@ -131,6 +131,7 @@ export default function Wardrobe({
   onDelete: (id: string) => void;
 }) {
   const [activeCategory, setActiveCategory] = useState<Category | 'Tümü'>('Tümü');
+  const [activeSubCategory, setActiveSubCategory] = useState<SubCategory | 'Tümü'>('Tümü');
   const [searchQuery, setSearchQuery] = useState('');
   const [showFilters, setShowFilters] = useState(false);
   const [filterColor, setFilterColor] = useState('Tümü');
@@ -148,13 +149,14 @@ export default function Wardrobe({
 
   const filteredItems = items.filter((item) => {
     const matchesCategory = activeCategory === 'Tümü' || item.category === activeCategory;
+    const matchesSubCategory = activeSubCategory === 'Tümü' || item.subCategory === activeSubCategory;
     const matchesSearch = item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.subCategory.toLowerCase().includes(searchQuery.toLowerCase()) ||
       item.color.toLowerCase().includes(searchQuery.toLowerCase());
     const matchesColor = filterColor === 'Tümü' || item.color === filterColor;
     const matchesStyle = filterStyle === 'Tümü' || item.style === filterStyle;
 
-    return matchesCategory && matchesSearch && matchesColor && matchesStyle;
+    return matchesCategory && matchesSubCategory && matchesSearch && matchesColor && matchesStyle;
   });
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -281,28 +283,66 @@ export default function Wardrobe({
       </AnimatePresence>
 
       {/* Category Filter */}
-      <div className="flex overflow-x-auto pb-2 gap-2 scrollbar-hide">
-        <button
-          onClick={() => setActiveCategory('Tümü')}
-          className={`whitespace-nowrap px-5 py-2 rounded-full text-sm font-semibold transition-all shadow-sm ${activeCategory === 'Tümü'
-            ? 'bg-stone-900 text-white scale-105'
-            : 'bg-white text-stone-600 hover:bg-stone-100 border border-stone-200'
-            }`}
-        >
-          Tümü
-        </button>
-        {CATEGORIES.map((cat) => (
+      <div className="flex flex-col gap-3">
+        <div className="flex overflow-x-auto pb-2 gap-2 scrollbar-hide">
           <button
-            key={cat}
-            onClick={() => setActiveCategory(cat)}
-            className={`whitespace-nowrap px-5 py-2 rounded-full text-sm font-semibold transition-all shadow-sm ${activeCategory === cat
+            onClick={() => { setActiveCategory('Tümü'); setActiveSubCategory('Tümü'); }}
+            className={`whitespace-nowrap px-5 py-2 rounded-full text-sm font-semibold transition-all shadow-sm ${activeCategory === 'Tümü'
               ? 'bg-stone-900 text-white scale-105'
               : 'bg-white text-stone-600 hover:bg-stone-100 border border-stone-200'
               }`}
           >
-            {cat}
+            Tümü
           </button>
-        ))}
+          {CATEGORIES.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => { setActiveCategory(cat); setActiveSubCategory('Tümü'); }}
+              className={`whitespace-nowrap px-5 py-2 rounded-full text-sm font-semibold transition-all shadow-sm ${activeCategory === cat
+                ? 'bg-stone-900 text-white scale-105'
+                : 'bg-white text-stone-600 hover:bg-stone-100 border border-stone-200'
+                }`}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+
+        {/* Sub-Category Filter */}
+        <AnimatePresence>
+          {activeCategory !== 'Tümü' && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: 'auto', opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="flex overflow-x-auto pb-2 gap-2 scrollbar-hide"
+            >
+              <button
+                onClick={() => setActiveSubCategory('Tümü')}
+                className={`whitespace-nowrap px-4 py-1.5 rounded-full text-xs font-semibold transition-all shadow-sm ${
+                  activeSubCategory === 'Tümü'
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+                }`}
+              >
+                Tümü
+              </button>
+              {WARDROBE_CATEGORIES[activeCategory as Category].map((subCat) => (
+                <button
+                  key={subCat}
+                  onClick={() => setActiveSubCategory(subCat)}
+                  className={`whitespace-nowrap px-4 py-1.5 rounded-full text-xs font-semibold transition-all shadow-sm ${
+                    activeSubCategory === subCat
+                      ? 'bg-indigo-600 text-white'
+                      : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'
+                  }`}
+                >
+                  {subCat}
+                </button>
+              ))}
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
 
       {/* Grid */}
