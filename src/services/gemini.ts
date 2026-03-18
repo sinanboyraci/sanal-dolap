@@ -3,6 +3,28 @@ import { Category, SubCategory, MannequinProfile, WardrobeItem, WARDROBE_CATEGOR
 
 let aiClient: GoogleGenAI | null = null;
 
+// Models tried in order when quota is exceeded
+const FLASH_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-pro'];
+const PRO_MODELS   = ['gemini-2.0-pro', 'gemini-1.5-pro', 'gemini-pro'];
+
+async function generateWithFallback(ai: GoogleGenAI, models: string[], request: (model: string) => any) {
+  let lastErr: any;
+  for (const model of models) {
+    try {
+      return await request(model);
+    } catch (err: any) {
+      const msg = err?.message || '';
+      if (msg.includes('429') || msg.includes('RESOURCE_EXHAUSTED') || msg.includes('quota')) {
+        console.warn(`Model ${model} quota exceeded, trying next...`);
+        lastErr = err;
+        continue;
+      }
+      throw err; // Non-quota error — propagate immediately
+    }
+  }
+  throw new Error('Tüm Gemini modelleri kota sınırına ulaştı. Lütfen birkaç dakika bekleyip tekrar deneyin ya da Google AI Studio\'dan billing ekleyin.');
+}
+
 async function getAiClient(): Promise<GoogleGenAI> {
   if (aiClient) return aiClient;
 
@@ -93,14 +115,13 @@ export async function analyzeClothingItem(base64Image: string | null, mimeType: 
     `,
   });
 
-  const response = await ai.models.generateContent({
-    model: 'gemini-2.0-flash',
-    contents: {
-      parts: parts,
-    },
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: {
+  const response = await generateWithFallback(ai, FLASH_MODELS, (model) =>
+    ai.models.generateContent({
+      model,
+      contents: { parts },
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
         type: Type.OBJECT,
         properties: {
           category: {
@@ -151,7 +172,8 @@ export async function analyzeClothingItem(base64Image: string | null, mimeType: 
         required: ['category', 'subCategory', 'description', 'color', 'style', 'stylingAdvice', 'isFallback', 'imagePrompt'],
       },
     },
-  });
+  })
+);
 
   const text = response.text;
   if (!text) throw new Error('Failed to analyze image');
@@ -189,9 +211,10 @@ export async function generateOutfitRecommendation(
   );
 
   const ai = await getAiClient();
-  const selectionResponse = await ai.models.generateContent({
-    model: 'gemini-2.0-pro',
-    contents: `
+  const selectionResponse = await generateWithFallback(ai, PRO_MODELS, (model) =>
+    ai.models.generateContent({
+      model,
+      contents: `
       You are an expert fashion stylist.
       Here is the user's wardrobe (JSON format):
       ${wardrobeJson}
@@ -206,9 +229,9 @@ export async function generateOutfitRecommendation(
       Then, write a highly detailed visual description (in English) of the user wearing this exact outfit. This description will be used as a prompt for an AI image generator.
       The prompt should describe a full-body shot of a fashion model matching the user's profile, wearing ONLY the selected clothes. Be extremely specific about the colors, fit, and style of the clothes based exactly on the wardrobe descriptions.
     `,
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: {
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
         type: Type.OBJECT,
         properties: {
           selectedItems: {
@@ -226,9 +249,10 @@ export async function generateOutfitRecommendation(
           }
         },
         required: ['selectedItems'],
+        },
       },
-    },
-  });
+    })
+  );
 
   const selectionText = selectionResponse.text;
   if (!selectionText) throw new Error('Failed to generate outfit recommendation');
@@ -244,16 +268,18 @@ export async function generateOutfitRecommendation(
   // We'll return an array of results.
 
   const results = await Promise.all(selection.selectedItems.map(async (option) => {
-    const imageResponse = await ai.models.generateContent({
-      model: 'gemini-2.0-flash',
-      contents: {
-        parts: [
-          {
-            text: `A highly realistic, full-body fashion photography shot. A ${profile.age}-year-old ${profile.gender === 'Kadın' ? 'woman' : profile.gender === 'Erkek' ? 'man' : 'person'} with ${profile.skinTone === 'Açık' ? 'light/fair' : profile.skinTone === 'Buğday' ? 'olive/medium' : profile.skinTone === 'Esmer' ? 'brown/dark' : 'dark/black'} skin tone, ${profile.height}cm tall, ${profile.weight}kg. They are wearing EXACTLY AND ONLY: ${option.imagePrompt}. Professional studio lighting, clean background, photorealistic.`,
-          },
-        ],
-      },
-    });
+    const imageResponse = await generateWithFallback(ai, FLASH_MODELS, (model) =>
+      ai.models.generateContent({
+        model,
+        contents: {
+          parts: [
+            {
+              text: `A highly realistic, full-body fashion photography shot. A ${profile.age}-year-old ${profile.gender === 'Kadın' ? 'woman' : profile.gender === 'Erkek' ? 'man' : 'person'} with ${profile.skinTone === 'Açık' ? 'light/fair' : profile.skinTone === 'Buğday' ? 'olive/medium' : profile.skinTone === 'Esmer' ? 'brown/dark' : 'dark/black'} skin tone, ${profile.height}cm tall, ${profile.weight}kg. They are wearing EXACTLY AND ONLY: ${option.imagePrompt}. Professional studio lighting, clean background, photorealistic.`,
+            },
+          ],
+        },
+      })
+    );
 
     let imageUrl = '';
     for (const part of imageResponse.candidates?.[0]?.content?.parts || []) {
