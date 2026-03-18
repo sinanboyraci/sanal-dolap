@@ -4,8 +4,8 @@ import { Category, SubCategory, MannequinProfile, WardrobeItem, WARDROBE_CATEGOR
 let aiClient: GoogleGenAI | null = null;
 
 // Models tried in order when quota is exceeded
-const FLASH_MODELS = ['gemini-2.0-flash', 'gemini-1.5-flash', 'gemini-pro'];
-const PRO_MODELS   = ['gemini-2.0-pro', 'gemini-1.5-pro', 'gemini-pro'];
+const FLASH_MODELS = ['gemini-2.5-flash'];
+const PRO_MODELS   = ['gemini-2.5-pro'];
 
 async function generateWithFallback(ai: GoogleGenAI, models: string[], request: (model: string) => any) {
   let lastErr: any;
